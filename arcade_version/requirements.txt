@@ -1,0 +1,8 @@
+# Arcade bundles pyglet (windowing/input/audio/OpenGL) and Pillow
+# (texture/tint work in alien.py) as dependencies.
+arcade>=3.3.3
+
+# Drives the ship's momentum/knockback and alien death debris, same as
+# the pygame edition. Arcade's own install pulls in a compatible
+# pymunk version; pin loosely here in case it's installed standalone.
+pymunk>=6.6

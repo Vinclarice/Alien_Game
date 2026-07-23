@@ -5,3 +5,4 @@ venv/
 .venv/
 oracleJdk-26/
 high_score.json
+.claude/
