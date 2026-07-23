@@ -1,0 +1,9 @@
+# pygame-ce is a drop-in, actively maintained fork of pygame -- same
+# "import pygame" API, faster release cadence and bugfixes. If you
+# currently have plain `pygame` installed, run:
+#   pip uninstall pygame
+#   pip install -r requirements.txt
+pygame-ce>=2.5.7
+
+# pymunk drives the ship's momentum/knockback and alien death debris.
+pymunk>=7.0
