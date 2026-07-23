@@ -17,6 +17,7 @@ from physics import PhysicsWorld
 from audio import AudioManager
 from starfield import Starfield
 from lighting import LightingSystem
+from post_fx import PostFX
 
 
 class AlienInvasion(arcade.Window):
@@ -62,6 +63,8 @@ class AlienInvasion(arcade.Window):
         self.lighting = LightingSystem(
             self.settings.screen_width, self.settings.screen_height,
             background_color=self.settings.bg_color)
+        self.post_fx = PostFX(
+            self.settings.screen_width, self.settings.screen_height)
 
         self._create_fleet()
 
@@ -118,12 +121,20 @@ class AlienInvasion(arcade.Window):
         self.lighting.update(dt)
 
     def on_draw(self):
-        """Render the current frame."""
-        self.clear()
+        """Render the current frame.
 
-        # Everything that should be lit -- world/gameplay layer only.
-        # HUD and menu UI are drawn afterward, outside the light layer,
-        # so lighting never affects text/button legibility.
+        Everything that should be lit and bloom draws into an offscreen
+        buffer first: the world layer draws inside 'with self.lighting:'
+        (so it gets real point lighting), which composites into
+        self.post_fx's input framebuffer instead of straight to the
+        window. self.post_fx.draw() then runs the full-screen bloom
+        shader and writes the final image to the actual window. HUD and
+        menu UI are drawn last, straight onto the window, so neither
+        lighting nor bloom ever affects text/button legibility.
+        """
+        self.post_fx.use()
+        self.post_fx.clear()
+
         with self.lighting:
             self.starfield.draw()
             for bullet in self.bullets:
@@ -132,7 +143,10 @@ class AlienInvasion(arcade.Window):
             self.aliens.draw()
             self.physics.draw_debris()
             self.particles.draw()
-        self.lighting.draw()
+        self.lighting.draw(target=self.post_fx.fbo)
+
+        self.use()  # rebind the window so bloom's output lands on screen
+        self.post_fx.draw()
 
         # Draw the score information.
         self.sb.show_score()

@@ -160,5 +160,10 @@ class LightingSystem:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.layer.__exit__(exc_type, exc_val, exc_tb)
 
-    def draw(self):
-        self.layer.draw(ambient_color=AMBIENT)
+    def draw(self, target=None):
+        """Composite diffuse + light onto target (default: the actual
+        window). Pass a Framebuffer here to redirect the composite into
+        an offscreen target instead -- e.g. post_fx.py's bloom input,
+        so lighting runs before the full-screen bloom pass rather than
+        writing straight to the window ahead of it."""
+        self.layer.draw(target=target, ambient_color=AMBIENT)
