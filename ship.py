@@ -9,20 +9,20 @@ IMAGE_DIR = Path(__file__).resolve().parent / 'images'
 class Ship(arcade.Sprite):
     """A class to manage the ship.
 
-    Horizontal/vertical movement is physics-driven (via ai_game.physics):
-    holding a direction key applies thrust, and drag brings the ship to a
-    coast rather than an instant stop, so it has real momentum. The
+    Controls are Asteroids-style: LEFT/RIGHT rotate the ship (turning
+    facing_angle, which is also which way it fires), and UP/DOWN thrust
+    forward/backward relative to whichever way it's currently facing --
+    not fixed screen directions. Movement is physics-driven (via
+    ai_game.physics): thrust sets velocity, and drag brings the ship to
+    a coast rather than an instant stop, so it has real momentum. The
     actual position integration and wall collision happens once per
     frame in PhysicsWorld.step(); sync_from_body() then copies the
     result into this sprite's center_x/center_y for drawing.
 
-    facing_angle is independent of movement -- rotating (A/D) turns
-    which way the ship is pointed (and therefore which way it fires)
-    without changing which way the arrow keys push it. It uses the same
-    "degrees clockwise from straight up" convention as Bullet's own
-    angle parameter, so nose_position()/tail_position() and a bullet's
-    own dx/dy math agree without any extra sign-flipping at the call
-    site.
+    facing_angle uses "degrees clockwise from straight up", the same
+    convention as Bullet's own angle parameter, so nose_position()/
+    tail_position() and a bullet's own dx/dy math agree without any
+    extra sign-flipping at the call site.
 
     Arcade's coordinate system has y increasing upward with (0, 0) at
     the bottom-left of the screen, the opposite of pygame's y-down/
@@ -56,23 +56,20 @@ class Ship(arcade.Sprite):
         else:
             self.body = None
 
-        # Movement flags, set by keydown/keyup handling in AlienInvasion.
-        # The ship moves freely on both axes -- up/down mirror
-        # left/right exactly, both in code and in feel.
-        self.moving_right = False
-        self.moving_left = False
-        self.moving_up = False
-        self.moving_down = False
-
-        # Facing/rotation, independent of movement -- see class
-        # docstring. 0 is straight up, matching the sprite's native
-        # orientation, so no rotation is needed at spawn.
-        self.facing_angle = 0.0
+        # Control flags, set by keydown/keyup handling in AlienInvasion.
+        # LEFT/RIGHT rotate; UP/DOWN thrust forward/backward relative to
+        # facing_angle, not fixed screen directions.
         self.rotating_left = False
         self.rotating_right = False
+        self.thrusting_forward = False
+        self.thrusting_backward = False
+
+        # 0 is straight up, matching the sprite's native orientation, so
+        # no rotation is needed at spawn.
+        self.facing_angle = 0.0
 
     def update(self, dt=1.0, *args, **kwargs):
-        """Set the ship's desired velocity from its movement flags.
+        """Set the ship's desired velocity from its control flags.
 
         This only sets intent -- PhysicsWorld.step() (called once per
         frame from the main loop, after every object has had a chance to
@@ -80,41 +77,6 @@ class Ship(arcade.Sprite):
         collision. dt is the game's normalized delta-time factor, where
         1.0 means "one frame at 60fps".
         """
-        vx, vy = self.body.velocity
-        max_speed = self.settings.ship_speed
-        thrust_accel = max_speed * self.settings.ship_thrust_ratio
-
-        # Only add thrust while still under top speed -- this is what
-        # actually makes max_speed the real cruising speed. (Letting
-        # thrust keep adding past it and relying on drag alone to find
-        # an equilibrium works, but that equilibrium depends on the
-        # thrust/drag ratio, not on max_speed directly, which makes
-        # ship_speed lie about what top speed actually is.) Vertical
-        # thrust is identical in every respect, just the other axis.
-        if self.moving_right and vx < max_speed:
-            vx += thrust_accel * dt
-        if self.moving_left and vx > -max_speed:
-            vx -= thrust_accel * dt
-        if self.moving_up and vy < max_speed:
-            vy += thrust_accel * dt
-        if self.moving_down and vy > -max_speed:
-            vy -= thrust_accel * dt
-
-        # Drag: bleeds off speed continuously, so releasing the key
-        # coasts to a stop instead of snapping.
-        vx *= self.settings.ship_drag ** dt
-        vy *= self.settings.ship_drag ** dt
-
-        # Belt-and-suspenders cap (well above max_speed) so a lag spike,
-        # or a knockback impulse from _apply_ship_knockback, can still
-        # briefly exceed max_speed and decay back down through drag
-        # instead of being clamped away instantly.
-        safety_cap = max_speed * 3
-        vx = max(-safety_cap, min(safety_cap, vx))
-        vy = max(-safety_cap, min(safety_cap, vy))
-
-        self.body.velocity = (vx, vy)
-
         if self.rotating_left:
             self.facing_angle -= self.settings.ship_rotation_speed * dt
         if self.rotating_right:
@@ -125,6 +87,51 @@ class Ship(arcade.Sprite):
         # positive degrees -- the same convention facing_angle already
         # uses -- so the sprite always visibly points the way it fires.
         self.angle = self.facing_angle
+
+        vx, vy = self.body.velocity
+        max_speed = self.settings.ship_speed
+        thrust_accel = max_speed * self.settings.ship_thrust_ratio
+
+        # Thrust is along the ship's current facing, not a fixed screen
+        # axis -- the same unit vector nose_position() uses.
+        rad = math.radians(self.facing_angle)
+        forward_x, forward_y = math.sin(rad), math.cos(rad)
+
+        # Only add thrust while still under top speed *in that
+        # direction* -- the projection of current velocity onto the
+        # thrust axis -- which is what actually makes max_speed the
+        # real cruising speed. (Letting thrust keep adding past it and
+        # relying on drag alone to find an equilibrium works, but that
+        # equilibrium depends on the thrust/drag ratio, not on
+        # max_speed directly, which makes ship_speed lie about what top
+        # speed actually is.)
+        forward_speed = vx * forward_x + vy * forward_y
+        if self.thrusting_forward and forward_speed < max_speed:
+            vx += forward_x * thrust_accel * dt
+            vy += forward_y * thrust_accel * dt
+        if self.thrusting_backward and -forward_speed < max_speed:
+            vx -= forward_x * thrust_accel * dt
+            vy -= forward_y * thrust_accel * dt
+
+        # Drag: bleeds off speed continuously, so releasing the key
+        # coasts to a stop instead of snapping.
+        vx *= self.settings.ship_drag ** dt
+        vy *= self.settings.ship_drag ** dt
+
+        # Belt-and-suspenders cap (well above max_speed) so a lag spike,
+        # or a knockback impulse from _apply_ship_knockback, can still
+        # briefly exceed max_speed and decay back down through drag
+        # instead of being clamped away instantly. Thrust isn't
+        # axis-aligned anymore, so this clamps the velocity vector's
+        # magnitude instead of each axis independently.
+        safety_cap = max_speed * 3
+        speed = math.hypot(vx, vy)
+        if speed > safety_cap:
+            scale = safety_cap / speed
+            vx *= scale
+            vy *= scale
+
+        self.body.velocity = (vx, vy)
 
     def nose_position(self, offset=None):
         """World (x, y) of the ship's nose -- where bullets spawn and

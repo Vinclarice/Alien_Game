@@ -189,19 +189,21 @@ class AlienInvasion(arcade.Window):
         self.set_mouse_visible(False)
 
     def on_key_press(self, key, modifiers):
-        """Respond to keypresses."""
-        if key == arcade.key.RIGHT:
-            self.ship.moving_right = True
-        elif key == arcade.key.LEFT:
-            self.ship.moving_left = True
-        elif key == arcade.key.UP:
-            self.ship.moving_up = True
-        elif key == arcade.key.DOWN:
-            self.ship.moving_down = True
-        elif key == arcade.key.A:
+        """Respond to keypresses.
+
+        Controls are Asteroids-style: LEFT/RIGHT turn the ship, UP
+        thrusts forward in whichever direction it's currently facing,
+        and DOWN thrusts backward (reverse) -- not fixed screen-space
+        directions.
+        """
+        if key == arcade.key.LEFT:
             self.ship.rotating_left = True
-        elif key == arcade.key.D:
+        elif key == arcade.key.RIGHT:
             self.ship.rotating_right = True
+        elif key == arcade.key.UP:
+            self.ship.thrusting_forward = True
+        elif key == arcade.key.DOWN:
+            self.ship.thrusting_backward = True
         elif key == arcade.key.Q:
             self.close()
         elif key == arcade.key.P and self.state != GameState.PLAYING:
@@ -220,18 +222,14 @@ class AlienInvasion(arcade.Window):
 
     def on_key_release(self, key, modifiers):
         """Respond to key releases."""
-        if key == arcade.key.RIGHT:
-            self.ship.moving_right = False
-        elif key == arcade.key.LEFT:
-            self.ship.moving_left = False
-        elif key == arcade.key.UP:
-            self.ship.moving_up = False
-        elif key == arcade.key.DOWN:
-            self.ship.moving_down = False
-        elif key == arcade.key.A:
+        if key == arcade.key.LEFT:
             self.ship.rotating_left = False
-        elif key == arcade.key.D:
+        elif key == arcade.key.RIGHT:
             self.ship.rotating_right = False
+        elif key == arcade.key.UP:
+            self.ship.thrusting_forward = False
+        elif key == arcade.key.DOWN:
+            self.ship.thrusting_backward = False
 
     def _emit_engine_trail(self):
         """Release one puff of exhaust behind the ship this frame; called

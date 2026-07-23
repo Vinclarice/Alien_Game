@@ -15,18 +15,19 @@ class Settings:
         # Ship settings.
         self.ship_limit = 3
 
-        # Ship movement is physics-driven (see physics.py / ship.py):
-        # holding a direction key applies thrust up to ship_speed (in
-        # initialize_dynamic_settings(), below), and drag brings it to a
-        # coast rather than an instant stop.
+        # Ship movement is physics-driven (see physics.py / ship.py),
+        # Asteroids-style: UP/DOWN thrust forward/backward relative to
+        # facing_angle (not fixed screen directions) up to ship_speed
+        # (in initialize_dynamic_settings(), below), and drag brings it
+        # to a coast rather than an instant stop.
         self.ship_thrust_ratio = 0.35  # thrust accel, as a fraction of ship_speed
         self.ship_drag = 0.85  # per-frame velocity retention (lower = stops faster)
 
-        # Rotation (A/D) is independent of movement -- it only changes
-        # which way the ship is pointed/fires, not which way thrust
-        # pushes it. Degrees per frame at 60fps, so 3.5 is a full 360
-        # turn in about 1.7 seconds -- brisk enough to reorient quickly,
-        # not so fast it's twitchy to control.
+        # Rotation (LEFT/RIGHT) is independent of thrust -- it only
+        # changes which way the ship is pointed/fires/thrusts, and
+        # doesn't move it on its own. Degrees per frame at 60fps, so 3.5
+        # is a full 360 turn in about 1.7 seconds -- brisk enough to
+        # reorient quickly, not so fast it's twitchy to control.
         self.ship_rotation_speed = 3.5
 
         # Bullet settings.
