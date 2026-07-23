@@ -22,6 +22,13 @@ class Settings:
         self.ship_thrust_ratio = 0.35  # thrust accel, as a fraction of ship_speed
         self.ship_drag = 0.85  # per-frame velocity retention (lower = stops faster)
 
+        # Rotation (A/D) is independent of movement -- it only changes
+        # which way the ship is pointed/fires, not which way thrust
+        # pushes it. Degrees per frame at 60fps, so 3.5 is a full 360
+        # turn in about 1.7 seconds -- brisk enough to reorient quickly,
+        # not so fast it's twitchy to control.
+        self.ship_rotation_speed = 3.5
+
         # Bullet settings.
         self.bullets_allowed = 10
 

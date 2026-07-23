@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import arcade
@@ -8,12 +9,20 @@ IMAGE_DIR = Path(__file__).resolve().parent / 'images'
 class Ship(arcade.Sprite):
     """A class to manage the ship.
 
-    Horizontal movement is physics-driven (via ai_game.physics): holding
-    a direction key applies thrust, and drag brings the ship to a coast
-    rather than an instant stop, so it has real momentum. The actual
-    position integration and wall collision happens once per frame in
-    PhysicsWorld.step(); sync_from_body() then copies the result into
-    this sprite's center_x/center_y for drawing.
+    Horizontal/vertical movement is physics-driven (via ai_game.physics):
+    holding a direction key applies thrust, and drag brings the ship to a
+    coast rather than an instant stop, so it has real momentum. The
+    actual position integration and wall collision happens once per
+    frame in PhysicsWorld.step(); sync_from_body() then copies the
+    result into this sprite's center_x/center_y for drawing.
+
+    facing_angle is independent of movement -- rotating (A/D) turns
+    which way the ship is pointed (and therefore which way it fires)
+    without changing which way the arrow keys push it. It uses the same
+    "degrees clockwise from straight up" convention as Bullet's own
+    angle parameter, so nose_position()/tail_position() and a bullet's
+    own dx/dy math agree without any extra sign-flipping at the call
+    site.
 
     Arcade's coordinate system has y increasing upward with (0, 0) at
     the bottom-left of the screen, the opposite of pygame's y-down/
@@ -54,6 +63,13 @@ class Ship(arcade.Sprite):
         self.moving_left = False
         self.moving_up = False
         self.moving_down = False
+
+        # Facing/rotation, independent of movement -- see class
+        # docstring. 0 is straight up, matching the sprite's native
+        # orientation, so no rotation is needed at spawn.
+        self.facing_angle = 0.0
+        self.rotating_left = False
+        self.rotating_right = False
 
     def update(self, dt=1.0, *args, **kwargs):
         """Set the ship's desired velocity from its movement flags.
@@ -98,6 +114,48 @@ class Ship(arcade.Sprite):
         vy = max(-safety_cap, min(safety_cap, vy))
 
         self.body.velocity = (vx, vy)
+
+        if self.rotating_left:
+            self.facing_angle -= self.settings.ship_rotation_speed * dt
+        if self.rotating_right:
+            self.facing_angle += self.settings.ship_rotation_speed * dt
+        self.facing_angle %= 360.0
+
+        # arcade.Sprite.angle rotates the drawn texture clockwise for
+        # positive degrees -- the same convention facing_angle already
+        # uses -- so the sprite always visibly points the way it fires.
+        self.angle = self.facing_angle
+
+    def nose_position(self, offset=None):
+        """World (x, y) of the ship's nose -- where bullets spawn and
+        aim from. Defaults to half the sprite's own height out from
+        center, i.e. right at the drawn tip regardless of facing_angle."""
+        if offset is None:
+            offset = self.height / 2
+        rad = math.radians(self.facing_angle)
+        return (
+            self.center_x + math.sin(rad) * offset,
+            self.center_y + math.cos(rad) * offset,
+        )
+
+    def tail_position(self, offset=None):
+        """World (x, y) of the ship's tail -- where the engine trail/
+        glow anchors, always opposite the nose regardless of
+        facing_angle."""
+        if offset is None:
+            offset = self.height / 2
+        rad = math.radians(self.facing_angle)
+        return (
+            self.center_x - math.sin(rad) * offset,
+            self.center_y - math.cos(rad) * offset,
+        )
+
+    def right_vector(self):
+        """Unit vector pointing out the ship's right side (perpendicular
+        to facing_angle) -- used to jitter the engine trail side-to-side
+        relative to the ship's own orientation instead of the screen's."""
+        rad = math.radians(self.facing_angle)
+        return (math.cos(rad), -math.sin(rad))
 
     def sync_from_body(self):
         """Pull the physics body's simulated position into this sprite.

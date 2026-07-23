@@ -13,17 +13,20 @@ class Bullet:
     machinery here.
     """
 
-    def __init__(self, ai_game, angle, speed, width, height, color,
+    def __init__(self, x, y, angle, speed, width, height, color,
             weapon_name, piercing=False, pierce_count=1):
-        """Create a bullet at the ship's current position.
+        """Create a bullet at (x, y), the ship's current nose position.
 
         angle, speed, width, height, color, and weapon_name are always
         supplied by the caller from a settings.WeaponType -- there's no
         sensible standalone default for a bullet's own look and feel, so
         this deliberately doesn't duplicate weapon_types['single'] here.
 
-        angle is measured in degrees from straight up, with positive
-        values angled to the right -- used for spread/fan shots.
+        angle is measured in degrees clockwise from straight up (the
+        same convention as Ship.facing_angle) -- 0 with the ship facing
+        its spawn orientation, but any value once the ship's been
+        rotated, since the caller passes the ship's actual current
+        facing_angle (plus any spread offset) rather than always 0.
 
         piercing bullets survive hitting an alien instead of being
         destroyed on impact, and can go on to hit up to pierce_count
@@ -38,13 +41,7 @@ class Bullet:
         self.piercing = piercing
         self.pierces_left = pierce_count
         self.weapon_name = weapon_name
-
-        # Spawn with the bullet's leading edge (its top, since bullets
-        # fly toward increasing y in arcade's y-up world) flush with the
-        # ship's muzzle -- the arcade analog of the original's
-        # `rect.midtop = ship.rect.midtop`.
-        self.center_x = ai_game.ship.center_x
-        self.center_y = ai_game.ship.top - height / 2
+        self.angle = angle
 
         # Break speed into x/y components based on the firing angle.
         # dy is positive (arcade's up direction) since straight-up is
@@ -54,6 +51,23 @@ class Bullet:
         self.dx = speed * math.sin(radians)
         self.dy = speed * math.cos(radians)
 
+        # Spawn with the bullet's leading edge (not its center) flush
+        # with (x, y) -- the ship's nose point -- by nudging forward
+        # half the bullet's own height along its firing angle, the same
+        # way the original always nudged "up" when every bullet fired
+        # straight up. Reuses dx/dy's unit direction rather than
+        # recomputing sin/cos again.
+        forward_x, forward_y = math.sin(radians), math.cos(radians)
+        self.center_x = x + forward_x * (height / 2)
+        self.center_y = y + forward_y * (height / 2)
+
+    # left/right/top/bottom are an axis-aligned box using width/height
+    # as if the bullet were still always vertical -- an approximation
+    # now that bullets can fire at any angle, not the bullet's true
+    # rotated footprint. Close enough for both collision and the
+    # off-screen despawn check at this size/speed; a precise rotated
+    # hitbox would need real rect-vs-rect-at-an-angle math for a gain
+    # that's not visible on sprites this small.
     @property
     def left(self):
         return self.center_x - self.width / 2
@@ -79,17 +93,39 @@ class Bullet:
         self.center_x += self.dx * dt
         self.center_y += self.dy * dt
 
-    @staticmethod
-    def _draw_capsule(cx, cy, width, height, color):
-        """A rect with fully-rounded ends (a 'stadium' shape) -- the
-        arcade equivalent of pygame's `border_radius=width // 2`."""
+    def _draw_capsule(self, cx, cy, width, height, color):
+        """A rect with fully-rounded ends (a 'stadium' shape), rotated
+        to this bullet's own firing angle -- the arcade equivalent of
+        pygame's `border_radius=width // 2`, plus rotation so a bullet
+        fired sideways or at a diagonal actually looks like it's
+        pointing the way it's traveling instead of always standing
+        upright regardless of its real direction."""
         radius = width / 2
         half_h = max(0.0, height / 2 - radius)
+        rad = math.radians(self.angle)
+        # Unit vector along the capsule's long axis (same convention as
+        # dx/dy: 0 degrees is straight up) and the perpendicular unit
+        # vector for its short axis.
+        along_x, along_y = math.sin(rad), math.cos(rad)
+        perp_x, perp_y = math.cos(rad), -math.sin(rad)
+
         if half_h > 0:
-            arcade.draw_lrbt_rectangle_filled(
-                cx - radius, cx + radius, cy - half_h, cy + half_h, color)
-        arcade.draw_circle_filled(cx, cy + half_h, radius, color)
-        arcade.draw_circle_filled(cx, cy - half_h, radius, color)
+            corners = [
+                (cx + along_x * half_h + perp_x * radius,
+                    cy + along_y * half_h + perp_y * radius),
+                (cx + along_x * half_h - perp_x * radius,
+                    cy + along_y * half_h - perp_y * radius),
+                (cx - along_x * half_h - perp_x * radius,
+                    cy - along_y * half_h - perp_y * radius),
+                (cx - along_x * half_h + perp_x * radius,
+                    cy - along_y * half_h + perp_y * radius),
+            ]
+            arcade.draw_polygon_filled(corners, color)
+
+        arcade.draw_circle_filled(
+            cx + along_x * half_h, cy + along_y * half_h, radius, color)
+        arcade.draw_circle_filled(
+            cx - along_x * half_h, cy - along_y * half_h, radius, color)
 
     def draw_bullet(self):
         """Draw the bullet with a soft glow and a bright highlight core."""

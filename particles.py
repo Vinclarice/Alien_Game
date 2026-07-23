@@ -149,12 +149,20 @@ class ParticleSystem:
                 lifespan=random.uniform(*lifespan_range),
             ))
 
-    def spawn_muzzle_flash(self, x, y, color, count=12):
-        """A tight, fast, short-lived burst at the gun's tip -- one shot."""
+    def spawn_muzzle_flash(self, x, y, color, facing_degrees=0.0, count=12):
+        """A tight, fast, short-lived burst at the gun's tip -- one shot.
+
+        facing_degrees is the ship's own facing_angle (degrees clockwise
+        from straight up, Ship/Bullet's shared convention) -- the flash
+        sprays out along whichever way the ship is actually pointed,
+        not always straight up, now that the ship can rotate freely.
+        """
+        # Convert from the "clockwise from up" convention to this
+        # method's plain math-radians (0 = +x/right, increasing
+        # counterclockwise) just once, then spread around that.
+        facing_math_rad = math.pi / 2 - math.radians(facing_degrees)
         for _ in range(count):
-            # Spread narrowly around "straight up" (90 degrees in
-            # arcade's y-up world).
-            angle = math.pi / 2 + random.uniform(-math.pi / 5, math.pi / 5)
+            angle = facing_math_rad + random.uniform(-math.pi / 5, math.pi / 5)
             speed = random.uniform(2.0, 5.0)
             self.sprite_list.append(GlowParticle(
                 x, y,
@@ -163,13 +171,27 @@ class ParticleSystem:
                 lifespan=random.uniform(6, 10),
             ))
 
-    def spawn_engine_trail(self, x, y, color, count=3):
+    def spawn_engine_trail(self, x, y, color, facing_degrees=0.0, count=3):
         """A few soft puffs of exhaust; called every frame the ship is
-        active so the puffs accumulate into a dense, continuous trail."""
+        active so the puffs accumulate into a dense, continuous trail.
+
+        facing_degrees works the same as in spawn_muzzle_flash -- the
+        exhaust drifts away from the ship's tail (directly opposite its
+        nose), with a little sideways spread, rather than always
+        drifting straight down.
+        """
+        rad = math.radians(facing_degrees)
+        # Opposite the nose direction (same convention as
+        # Ship.tail_position/right_vector).
+        back_x, back_y = -math.sin(rad), -math.cos(rad)
+        side_x, side_y = math.cos(rad), -math.sin(rad)
         for _ in range(count):
+            speed = random.uniform(0.5, 1.4)
+            side = random.uniform(-0.5, 0.5)
             self.sprite_list.append(GlowParticle(
-                x + random.uniform(-3, 3), y,
-                dx=random.uniform(-0.5, 0.5), dy=random.uniform(-1.4, -0.5),
+                x, y,
+                dx=back_x * speed + side_x * side,
+                dy=back_y * speed + side_y * side,
                 color=color, radius=random.uniform(2, 5),
                 lifespan=random.uniform(14, 24),
             ))

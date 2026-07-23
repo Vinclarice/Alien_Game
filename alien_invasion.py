@@ -104,8 +104,8 @@ class AlienInvasion(arcade.Window):
             self._update_bullets(dt)
             self._update_aliens(dt)
             self._emit_engine_trail()
-            self.lighting.set_engine_light(
-                self.ship.center_x, self.ship.bottom + 4)
+            engine_x, engine_y = self.ship.tail_position()
+            self.lighting.set_engine_light(engine_x, engine_y)
         else:
             self.lighting.clear_engine_light()
 
@@ -198,6 +198,10 @@ class AlienInvasion(arcade.Window):
             self.ship.moving_up = True
         elif key == arcade.key.DOWN:
             self.ship.moving_down = True
+        elif key == arcade.key.A:
+            self.ship.rotating_left = True
+        elif key == arcade.key.D:
+            self.ship.rotating_right = True
         elif key == arcade.key.Q:
             self.close()
         elif key == arcade.key.P and self.state != GameState.PLAYING:
@@ -224,17 +228,21 @@ class AlienInvasion(arcade.Window):
             self.ship.moving_up = False
         elif key == arcade.key.DOWN:
             self.ship.moving_down = False
+        elif key == arcade.key.A:
+            self.ship.rotating_left = False
+        elif key == arcade.key.D:
+            self.ship.rotating_right = False
 
     def _emit_engine_trail(self):
         """Release one puff of exhaust behind the ship this frame; called
-        every frame while playing so the puffs build into a trail."""
-        x = self.ship.center_x + random.uniform(-4, 4)
-        # The ship's rear, tucked slightly inward from its very bottom
-        # edge -- the arcade analog of the pygame version's
-        # `ship.rect.bottom - 4` (there, subtracting moved the point up
-        # into the ship since pygame's y increases downward).
-        y = self.ship.bottom + 4
-        self.particles.spawn_engine_trail(x, y, (255, 170, 60))
+        every frame while playing so the puffs build into a trail.
+
+        The spawn point is the ship's tail -- opposite its nose/facing,
+        tucked slightly inward -- so the exhaust always comes out the
+        back regardless of which way the ship is currently rotated."""
+        x, y = self.ship.tail_position(offset=self.ship.height / 2 - 4)
+        self.particles.spawn_engine_trail(
+            x, y, (255, 170, 60), facing_degrees=self.ship.facing_angle)
 
     def _fire_bullet(self):
         """Fire the current weapon, respecting the total bullet cap."""
@@ -253,17 +261,20 @@ class AlienInvasion(arcade.Window):
                 return
 
         speed = weapon.speed * self.settings.bullet_speed_multiplier
+        facing = self.ship.facing_angle
 
         if weapon.bullet_count == 1:
-            angles = [0]
+            angles = [facing]
         else:
-            # Fan the bullets out evenly around straight up.
+            # Fan the bullets out evenly around wherever the ship is
+            # currently facing, not always straight up.
             half = (weapon.bullet_count - 1) / 2
-            angles = [(i - half) * weapon.spread_angle
+            angles = [facing + (i - half) * weapon.spread_angle
                 for i in range(weapon.bullet_count)]
 
+        gun_x, gun_y = self.ship.nose_position()
         for angle in angles:
-            new_bullet = Bullet(self, angle=angle, speed=speed,
+            new_bullet = Bullet(gun_x, gun_y, angle=angle, speed=speed,
                 width=weapon.width, height=weapon.height,
                 color=weapon.color, weapon_name=self.current_weapon,
                 piercing=weapon.piercing, pierce_count=weapon.pierce_count)
@@ -271,8 +282,8 @@ class AlienInvasion(arcade.Window):
 
         # One flash/sound per trigger pull, regardless of how many
         # bullets that shot fires.
-        gun_x, gun_y = self.ship.center_x, self.ship.top
-        self.particles.spawn_muzzle_flash(gun_x, gun_y, weapon.color)
+        self.particles.spawn_muzzle_flash(
+            gun_x, gun_y, weapon.color, facing_degrees=facing)
         self.lighting.spawn_muzzle_flash(gun_x, gun_y, weapon.color)
         self.audio.play(f'laser_{self.current_weapon}')
 
