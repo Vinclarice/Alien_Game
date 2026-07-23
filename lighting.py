@@ -20,17 +20,29 @@ from arcade.future.light import Light, LightLayer
 
 AMBIENT = (255, 255, 255)
 
-MUZZLE_FLASH_RADIUS = 130
-MUZZLE_FLASH_LIFESPAN = 8
+MUZZLE_FLASH_RADIUS = 190
+MUZZLE_FLASH_LIFESPAN = 9
 
-EXPLOSION_RADIUS = 220
-EXPLOSION_LIFESPAN = 30
+EXPLOSION_RADIUS = 300
+EXPLOSION_LIFESPAN = 32
 
-SHIP_EXPLOSION_RADIUS = 320
-SHIP_EXPLOSION_LIFESPAN = 40
+SHIP_EXPLOSION_RADIUS = 420
+SHIP_EXPLOSION_LIFESPAN = 42
 
-BULLET_LIGHT_RADIUS = 70
-ENGINE_LIGHT_RADIUS = 90
+BULLET_LIGHT_RADIUS = 100
+ENGINE_LIGHT_RADIUS = 130
+
+# Muzzle flashes and bullet lights borrow their color straight from the
+# weapon (settings.WeaponType.color), which can be quite dark -- the
+# 'single' weapon is (60, 60, 60) for its own visual reasons. A light
+# that dim barely registers, so those two specifically light with a
+# whitened version of the weapon color instead of the raw value, same
+# trick bullet.py already uses for its highlight core.
+_LIGHT_COLOR_BOOST = 130
+
+
+def _boosted(color):
+    return tuple(min(255, c + _LIGHT_COLOR_BOOST) for c in color)
 
 
 class _Pulse:
@@ -92,7 +104,7 @@ class LightingSystem:
 
     def spawn_muzzle_flash(self, x, y, color):
         """A quick, bright pop at the gun's tip -- one per trigger pull."""
-        self._spawn_pulse(x, y, color, MUZZLE_FLASH_RADIUS,
+        self._spawn_pulse(x, y, _boosted(color), MUZZLE_FLASH_RADIUS,
             MUZZLE_FLASH_LIFESPAN)
 
     def spawn_explosion(self, x, y, color):
@@ -115,7 +127,7 @@ class LightingSystem:
             light = self._bullet_lights.get(key)
             if light is None:
                 light = Light(bullet.center_x, bullet.center_y,
-                    radius=BULLET_LIGHT_RADIUS, color=bullet.color,
+                    radius=BULLET_LIGHT_RADIUS, color=_boosted(bullet.color),
                     mode='soft')
                 self.layer.add(light)
                 self._bullet_lights[key] = light
