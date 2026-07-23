@@ -74,13 +74,29 @@ class Settings:
         }
 
         # Dive-attack settings: random aliens periodically break formation
-        # and swoop toward the ship instead of just marching side to side.
-        self.dive_speed = 0.6
+        # and swoop toward the ship, then curve back up and bank off to
+        # one side instead of just falling straight down off the bottom
+        # of the screen -- a full attack-run arc rather than a one-way
+        # drop. dive_speed/dive_duration keep the same tuned pacing as
+        # before (do not speed these back up -- they were deliberately
+        # slowed down across a few passes to feel readable, not rushed).
+        self.dive_speed = 0.6  # descend rate, px/frame
         self.dive_duration = 220  # frames to reach target_x horizontally
         self.dive_amplitude = 15  # pixels of side-to-side wiggle while diving
         self.dive_wiggle_rate = 0.05  # how fast the wiggle oscillates
+        self.dive_depth_fraction = 0.82  # how far down the screen a dive reaches
+        self.dive_ascend_speed = 0.9  # climb-back-out rate, px/frame -- a bit
+                                       # snappier than the descend so the escape
+                                       # reads as a deliberate peel-away
+        self.dive_bank_speed = 1.6  # px/frame sideways drift while ascending
         self.max_concurrent_dives = 2
         self.dive_cooldown_range = (90, 200)  # frames between dive attempts
+
+        # Formation "hover": a small, per-alien-phased vertical bob
+        # applied to the normal march so the fleet ripples gently
+        # instead of moving in perfectly rigid lockstep.
+        self.alien_bob_amplitude = 5  # pixels
+        self.alien_bob_rate = 0.035  # radians/frame
 
         # How quickly the game speeds up.
         self.speedup_scale = 1.1

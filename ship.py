@@ -48,8 +48,12 @@ class Ship(arcade.Sprite):
             self.body = None
 
         # Movement flags, set by keydown/keyup handling in AlienInvasion.
+        # The ship moves freely on both axes -- up/down mirror
+        # left/right exactly, both in code and in feel.
         self.moving_right = False
         self.moving_left = False
+        self.moving_up = False
+        self.moving_down = False
 
     def update(self, dt=1.0, *args, **kwargs):
         """Set the ship's desired velocity from its movement flags.
@@ -69,15 +73,21 @@ class Ship(arcade.Sprite):
         # thrust keep adding past it and relying on drag alone to find
         # an equilibrium works, but that equilibrium depends on the
         # thrust/drag ratio, not on max_speed directly, which makes
-        # ship_speed lie about what top speed actually is.)
+        # ship_speed lie about what top speed actually is.) Vertical
+        # thrust is identical in every respect, just the other axis.
         if self.moving_right and vx < max_speed:
             vx += thrust_accel * dt
         if self.moving_left and vx > -max_speed:
             vx -= thrust_accel * dt
+        if self.moving_up and vy < max_speed:
+            vy += thrust_accel * dt
+        if self.moving_down and vy > -max_speed:
+            vy -= thrust_accel * dt
 
         # Drag: bleeds off speed continuously, so releasing the key
         # coasts to a stop instead of snapping.
         vx *= self.settings.ship_drag ** dt
+        vy *= self.settings.ship_drag ** dt
 
         # Belt-and-suspenders cap (well above max_speed) so a lag spike,
         # or a knockback impulse from _apply_ship_knockback, can still
@@ -85,6 +95,7 @@ class Ship(arcade.Sprite):
         # instead of being clamped away instantly.
         safety_cap = max_speed * 3
         vx = max(-safety_cap, min(safety_cap, vx))
+        vy = max(-safety_cap, min(safety_cap, vy))
 
         self.body.velocity = (vx, vy)
 

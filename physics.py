@@ -64,20 +64,25 @@ class PhysicsWorld:
         self._add_walls(screen_width, screen_height)
 
     def _add_walls(self, width, height):
-        """Static segments along the left/right screen edges so physics
-        bodies (the ship, debris) stop or bounce there instead of
-        sailing off past the visible play area."""
+        """Static segments along all four screen edges so physics bodies
+        (the ship, debris) stop or bounce there instead of sailing off
+        past the visible play area -- the ship now moves freely on both
+        axes, not just left/right, so it needs a top/bottom bound too."""
         static_body = self.space.static_body
         margin = max(width, height) * 2
         left = pymunk.Segment(static_body, (0, -margin), (0, height + margin), 2)
         right = pymunk.Segment(static_body, (width, -margin),
             (width, height + margin), 2)
-        for wall in (left, right):
+        bottom = pymunk.Segment(static_body, (-margin, 0),
+            (width + margin, 0), 2)
+        top = pymunk.Segment(static_body, (-margin, height),
+            (width + margin, height), 2)
+        for wall in (left, right, bottom, top):
             wall.elasticity = 0.0
             wall.friction = 0.0
             wall.filter = pymunk.ShapeFilter(
                 categories=CATEGORY_WALL, mask=CATEGORY_SHIP | CATEGORY_DEBRIS)
-        self.space.add(left, right)
+        self.space.add(left, right, bottom, top)
 
     def make_ship_body(self, width, height, x, y):
         """Build the ship's physics body/shape and add it to the space.

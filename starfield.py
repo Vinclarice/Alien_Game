@@ -213,17 +213,43 @@ class ShootingStar:
         self.x += self.dx * dt
         self.y += self.dy * dt
 
-    def draw(self):
-        remaining = max(0.0, 1 - self.age / self.lifespan)
-        alpha = int(255 * remaining)
-        speed = math.hypot(self.dx, self.dy) or 1.0
-        tail_x = self.x - (self.dx / speed) * self.length
-        tail_y = self.y - (self.dy / speed) * self.length
+    # How many short segments the trail is built from -- more reads as
+    # a smoother taper, at the cost of a few extra draw calls.
+    _TRAIL_SEGMENTS = 14
 
-        arcade.draw_line(tail_x, tail_y, self.x, self.y,
-            (255, 255, 255, max(0, alpha // 2)), 2)
+    def draw(self):
+        """Draw the head as a bright dot, then the trail as several
+        short segments that both fade AND narrow from head to tail --
+        a single flat-alpha draw_line reads as a rigid gray bar, not a
+        comet streak, since every point along it is equally bright."""
+        remaining = max(0.0, 1 - self.age / self.lifespan)
+        head_alpha = int(255 * remaining)
+        if head_alpha <= 0:
+            return
+
+        speed = math.hypot(self.dx, self.dy) or 1.0
+        ux, uy = self.dx / speed, self.dy / speed
+
+        segments = self._TRAIL_SEGMENTS
+        for i in range(segments):
+            t0 = i / segments
+            t1 = (i + 1) / segments
+            # t=0 is at the head, t=1 at the far end of the trail --
+            # an exponent > 1 on the fade keeps most of the trail dim
+            # and lets only the portion nearest the head read as bright,
+            # which is what actually sells the "streak" look.
+            seg_alpha = int(head_alpha * (1 - t1) ** 1.8)
+            if seg_alpha <= 0:
+                continue
+            x0 = self.x - ux * self.length * t0
+            y0 = self.y - uy * self.length * t0
+            x1 = self.x - ux * self.length * t1
+            y1 = self.y - uy * self.length * t1
+            width = max(0.5, 2.4 * (1 - t0))
+            arcade.draw_line(x0, y0, x1, y1, (255, 255, 255, seg_alpha), width)
+
         arcade.draw_circle_filled(self.x, self.y, 2.5,
-            (255, 255, 255, max(0, alpha)))
+            (255, 255, 255, head_alpha))
 
 
 class Starfield:

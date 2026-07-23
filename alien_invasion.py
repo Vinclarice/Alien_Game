@@ -194,6 +194,10 @@ class AlienInvasion(arcade.Window):
             self.ship.moving_right = True
         elif key == arcade.key.LEFT:
             self.ship.moving_left = True
+        elif key == arcade.key.UP:
+            self.ship.moving_up = True
+        elif key == arcade.key.DOWN:
+            self.ship.moving_down = True
         elif key == arcade.key.Q:
             self.close()
         elif key == arcade.key.P and self.state != GameState.PLAYING:
@@ -216,6 +220,10 @@ class AlienInvasion(arcade.Window):
             self.ship.moving_right = False
         elif key == arcade.key.LEFT:
             self.ship.moving_left = False
+        elif key == arcade.key.UP:
+            self.ship.moving_up = False
+        elif key == arcade.key.DOWN:
+            self.ship.moving_down = False
 
     def _emit_engine_trail(self):
         """Release one puff of exhaust behind the ship this frame; called

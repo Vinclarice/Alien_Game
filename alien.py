@@ -1,4 +1,5 @@
 import math
+import random
 from pathlib import Path
 
 import arcade
@@ -60,6 +61,11 @@ class Alien(arcade.Sprite):
         self.diving = False
         self.dive_timer = 0
         self.y = self.dist_from_top
+
+        # Gentle per-alien-phased vertical hover applied while marching
+        # (not diving) -- randomized per alien so the whole fleet ripples
+        # instead of bobbing in unison.
+        self.bob_phase = random.uniform(0, 2 * math.pi)
 
         # Hit-reaction stagger: a small damped-spring offset layered on
         # top of the alien's real position, kicked by stagger() whenever
@@ -171,20 +177,25 @@ class Alien(arcade.Sprite):
         else:
             self.x += (self.settings.alien_speed *
                 self.settings.fleet_direction * self.speed_multiplier * dt)
+            self.bob_phase += self.settings.alien_bob_rate * dt
 
         self._update_stagger(dt)
         self._sync_sprite_position()
 
     def _sync_sprite_position(self):
         """Push self.x/self.dist_from_top (plus the current stagger
-        offset) into this sprite's actual screen coordinates, flipping
-        into arcade's bottom-left/y-up frame, and despawn a dive that's
-        fully scrolled off the bottom of the screen."""
+        offset and, while marching, a small bob) into this sprite's
+        actual screen coordinates, flipping into arcade's bottom-left/
+        y-up frame, and despawn a dive that's fully scrolled off either
+        the bottom (an old-style straight fall) or the top (the new
+        ascend-and-bank exit) of the screen."""
+        bob = (0.0 if self.diving else
+            math.sin(self.bob_phase) * self.settings.alien_bob_amplitude)
         self.center_x = self.x + self.width / 2 + self.stagger_offset[0]
         self.top = (self.screen_height - self.dist_from_top +
-            self.stagger_offset[1])
+            self.stagger_offset[1] + bob)
 
-        if self.diving and self.top < 0:
+        if self.diving and (self.top < 0 or self.bottom > self.screen_height):
             self.remove_from_sprite_lists()
 
     def stagger(self, dx, dy, strength=6.0):
@@ -211,25 +222,62 @@ class Alien(arcade.Sprite):
             self.stagger_offset[i] += self.stagger_velocity[i] * dt
 
     def start_dive(self, target_x):
-        """Break from formation and swoop down toward target_x."""
+        """Break from formation and swoop down toward target_x, as the
+        first ('descend') leg of a full attack-run arc -- see
+        _update_dive for the rest of the path."""
         self.diving = True
+        self.dive_phase = 'descend'
         self.dive_timer = 0
         self.dive_start_x = self.x
         self.dive_target_x = target_x
+        self.dive_bottom_dist = (
+            self.screen_height * self.settings.dive_depth_fraction)
 
     def _update_dive(self, dt):
-        """Advance one frame of a dive: swoop toward the target with a
-        sine-wave wiggle, then despawn once fully off the bottom (see
-        _sync_sprite_position)."""
+        """Advance one frame of whichever dive phase is active."""
         self.dive_timer += dt
+        if self.dive_phase == 'descend':
+            self._update_dive_descend(dt)
+        else:
+            self._update_dive_ascend(dt)
+        self.y = self.dist_from_top
 
-        progress = min(1.0, self.dive_timer / self.settings.dive_duration)
+    def _update_dive_descend(self, dt):
+        """Swoop toward target_x with a sine-wave wiggle (unchanged
+        pacing from before) while falling at the same tuned dive_speed,
+        until reaching dive_bottom_dist -- then hand off to the ascend
+        phase instead of continuing straight down off the bottom of the
+        screen."""
+        align_progress = min(1.0, self.dive_timer / self.settings.dive_duration)
         wiggle = (math.sin(self.dive_timer * self.settings.dive_wiggle_rate)
             * self.settings.dive_amplitude)
         self.x = (self.dive_start_x +
-            (self.dive_target_x - self.dive_start_x) * progress) + wiggle
-        self.y += self.settings.dive_speed * dt
-        self.dist_from_top = self.y
+            (self.dive_target_x - self.dive_start_x) * align_progress) + wiggle
+
+        self.dist_from_top += self.settings.dive_speed * dt
+        if self.dist_from_top >= self.dive_bottom_dist:
+            self.dist_from_top = self.dive_bottom_dist
+            self._begin_dive_ascend()
+
+    def _begin_dive_ascend(self):
+        """Switch from descending to climbing back out, banking hard
+        toward a randomly-chosen side so the exit reads as a deliberate
+        peel-away arc rather than a straight vertical retreat."""
+        self.dive_phase = 'ascend'
+        self.dive_timer = 0
+        self.dive_ascend_start_x = self.x
+        self.dive_bank_direction = random.choice((-1, 1))
+
+    def _update_dive_ascend(self, dt):
+        """Climb back up past the top of the screen (a negative
+        dist_from_top is 'above the top edge', see _sync_sprite_position)
+        while banking sideways, then despawn once fully clear."""
+        wiggle = (math.sin(self.dive_timer * self.settings.dive_wiggle_rate)
+            * self.settings.dive_amplitude)
+        self.x = (self.dive_ascend_start_x +
+            self.dive_bank_direction * self.settings.dive_bank_speed *
+                self.dive_timer) + wiggle
+        self.dist_from_top -= self.settings.dive_ascend_speed * dt
 
     def take_hit(self):
         """Register a bullet hit; return True if this destroys the alien."""
