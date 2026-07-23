@@ -14,8 +14,10 @@ class Scoreboard:
         self.settings = ai_game.settings
         self.stats = ai_game.stats
 
-        # Font settings for scoring information.
-        self.text_color = (30, 30, 30)
+        # Font settings for scoring information. Rendered with a
+        # transparent background (see _render_label()) so the starfield
+        # shows through instead of each label sitting in an opaque box.
+        self.text_color = (230, 235, 245)
         self.font = pygame.font.SysFont(None, 48)
 
         # Prepare the initial score images.
@@ -25,12 +27,22 @@ class Scoreboard:
         self.prep_ships()
         self.prep_weapon()
 
+    def _render_label(self, text):
+        """Render text with a transparent background and a soft dark
+        shadow, so it stays readable even when a bright star ends up
+        directly behind a letter."""
+        shadow = self.font.render(text, True, (0, 0, 0))
+        label = self.font.render(text, True, self.text_color)
+        surface = pygame.Surface(
+            (label.get_width() + 2, label.get_height() + 2), pygame.SRCALPHA)
+        surface.blit(shadow, (2, 2))
+        surface.blit(label, (0, 0))
+        return surface
+
     def prep_score(self):
         """Turn the score into a rendered image."""
         rounded_score = round(self.stats.score, -1)
-        score_str = f"Score: {rounded_score:,}"
-        self.score_image = self.font.render(score_str, True,
-            self.text_color, self.settings.bg_color)
+        self.score_image = self._render_label(f"Score: {rounded_score:,}")
 
         # Display the score at the top right of the screen.
         self.score_rect = self.score_image.get_rect()
@@ -40,9 +52,8 @@ class Scoreboard:
     def prep_high_score(self):
         """Turn the high score into a rendered image."""
         high_score = round(self.stats.high_score, -1)
-        high_score_str = f"High Score: {high_score:,}"
-        self.high_score_image = self.font.render(high_score_str, True,
-            self.text_color, self.settings.bg_color)
+        self.high_score_image = self._render_label(
+            f"High Score: {high_score:,}")
 
         # Center the high score at the top of the screen.
         self.high_score_rect = self.high_score_image.get_rect()
@@ -58,9 +69,7 @@ class Scoreboard:
 
     def prep_level(self):
         """Turn the level into a rendered image."""
-        level_str = f"Level: {self.stats.level}"
-        self.level_image = self.font.render(level_str, True,
-            self.text_color, self.settings.bg_color)
+        self.level_image = self._render_label(f"Level: {self.stats.level}")
 
         # Position the level below the score.
         self.level_rect = self.level_image.get_rect()
@@ -71,7 +80,10 @@ class Scoreboard:
         """Show how many ships are left."""
         self.ships = Group()
         for ship_number in range(self.stats.ships_left):
-            ship = Ship(self.ai_game)
+            # These are static HUD icons -- never moved, never collided
+            # -- so skip giving each one its own physics body (see
+            # Ship.__init__ for why that matters).
+            ship = Ship(self.ai_game, create_physics_body=False)
             ship.rect.x = 10 + ship_number * ship.rect.width
             ship.rect.y = 10
             self.ships.add(ship)
@@ -79,8 +91,7 @@ class Scoreboard:
     def prep_weapon(self):
         """Turn the current weapon name into a rendered image."""
         weapon_str = f"Weapon: {self.ai_game.current_weapon.title()} (1/2/3)"
-        self.weapon_image = self.font.render(weapon_str, True,
-            self.text_color, self.settings.bg_color)
+        self.weapon_image = self._render_label(weapon_str)
 
         # Position at the bottom left of the screen.
         self.weapon_rect = self.weapon_image.get_rect()

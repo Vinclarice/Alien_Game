@@ -6,10 +6,14 @@ from pygame.sprite import Sprite
 class Bullet(Sprite):
     """A class to manage bullets fired from the ship."""
 
-    def __init__(self, ai_game, angle=0, speed=4.0, width=3, height=15,
-            color=(60, 60, 60), piercing=False, pierce_count=1,
-            weapon_name='single'):
+    def __init__(self, ai_game, angle, speed, width, height, color,
+            weapon_name, piercing=False, pierce_count=1):
         """Create a bullet at the ship's current position.
+
+        angle, speed, width, height, color, and weapon_name are always
+        supplied by the caller from a settings.WeaponType -- there's no
+        sensible standalone default for a bullet's own look and feel, so
+        this deliberately doesn't duplicate weapon_types['single'] here.
 
         angle is measured in degrees from straight up, with positive
         values angled to the right -- used for spread/fan shots.
@@ -41,10 +45,14 @@ class Bullet(Sprite):
         self.dx = speed * math.sin(radians)
         self.dy = -speed * math.cos(radians)
 
-    def update(self):
-        """Move the bullet along its angle."""
-        self.x += self.dx
-        self.y += self.dy
+    def update(self, dt=1.0):
+        """Move the bullet along its angle.
+
+        dt is a normalized delta-time factor, where 1.0 means "one frame
+        at 60fps" -- see Alien.update() for why.
+        """
+        self.x += self.dx * dt
+        self.y += self.dy * dt
         self.rect.x = self.x
         self.rect.y = self.y
 

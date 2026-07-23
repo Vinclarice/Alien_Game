@@ -5,12 +5,17 @@ from time import sleep
 import pygame
 from settings import Settings
 from game_stats import GameStats
+from game_state import GameState
 from ship import Ship
 from bullet import Bullet
 from alien import Alien
 from button import Button
 from scoreboard import Scoreboard
 from formations import random_formation
+from particles import ParticleSystem
+from physics import PhysicsWorld
+from audio import AudioManager
+from starfield import Starfield
 
 class AlienInvasion:
     """Overall class to manage game assets and behavior."""
@@ -29,10 +34,20 @@ class AlienInvasion:
 
         # Set the background color.
         self.bg_color = self.settings.bg_color
+        self.starfield = Starfield(
+            self.settings.screen_width, self.settings.screen_height)
+
+        self.audio = AudioManager(self.settings.sfx_volume)
+
+        # Physics (ship momentum/knockback, debris) -- created before the
+        # ship, since Ship.__init__ needs it to build its physics body.
+        self.physics = PhysicsWorld(
+            self.settings.screen_width, self.settings.screen_height)
 
         self.ship = Ship(self)
         self.bullets = pygame.sprite.Group()
         self.aliens = pygame.sprite.Group()
+        self.particles = ParticleSystem(self.screen)
 
         self._create_fleet()
 
@@ -42,30 +57,60 @@ class AlienInvasion:
         # Create the scoreboard.
         self.sb = Scoreboard(self)
 
-        # Start Alien Invasion in an inactive state.
-        self.game_active = False
+        # Start Alien Invasion at the main menu.
+        self.state = GameState.MENU
 
-        # Make the Play button.
+        # Make the Play button and the game-over headline fonts.
         self.play_button = Button(self, "Play")
+        self.game_over_font = pygame.font.SysFont(None, 64)
+        self.game_over_sub_font = pygame.font.SysFont(None, 36)
 
     def run_game(self):
         """Start the main loop for the game."""
         while True:
+            dt = self._tick()
             self._check_events()
 
-            if self.game_active:
-                self.ship.update()
-                self._update_bullets()
-                self._update_aliens()
+            if self.state == GameState.PLAYING:
+                self.ship.update(dt)
+                self._update_bullets(dt)
+                self._update_aliens(dt)
+                self._emit_engine_trail()
+
+            # Physics (ship momentum/wall collision, debris tumbling) and
+            # particles keep advancing even off PLAYING, so a knockback
+            # or explosion already in progress finishes playing out on
+            # the menu/game-over screen instead of freezing mid-animation.
+            self.physics.step(dt)
+            self.ship.sync_from_body()
+            self.particles.update(dt)
+            self.starfield.update(dt)  # drifts on the menu too, not just PLAYING
 
             self.update_screen()
-            self.clock.tick(60)  # Limit the frame rate to 60 FPS
+
+    def _tick(self):
+        """Advance the clock and return a normalized delta-time factor.
+
+        1.0 means "exactly one frame at 60fps" elapsed, so the existing
+        speed constants (tuned assuming 60fps) still feel the same, but
+        movement now scales with actual elapsed time instead of assuming
+        a fixed frame rate. Clamped so a stall (e.g. dragging the window)
+        can't fling everything across the screen in one jump.
+        """
+        elapsed_ms = self.clock.tick(60)  # also caps the frame rate at 60
+        dt = elapsed_ms / (1000 / 60)
+        return min(dt, 3.0)
+
+    def _quit_game(self):
+        """Shut pygame down cleanly and exit."""
+        pygame.quit()
+        sys.exit()
 
     def _check_events(self):
         """Respond to keypresses and mouse events."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                sys.exit()
+                self._quit_game()
             elif event.type == pygame.KEYDOWN:
                 self._check_keydown_events(event)
             elif event.type == pygame.KEYUP:
@@ -77,17 +122,19 @@ class AlienInvasion:
     def _check_play_button(self, mouse_pos):
         """Start a new game when the player clicks Play."""
         button_clicked = self.play_button.rect.collidepoint(mouse_pos)
-        if button_clicked and not self.game_active:
+        if button_clicked and self.state != GameState.PLAYING:
             self._start_game()
 
     def _start_game(self):
         """Reset game state and begin a new game."""
+        self.audio.play('ui_select')
+
         # Reset the game settings.
         self.settings.initialize_dynamic_settings()
 
         # Reset the game statistics.
         self.stats.reset_stats()
-        self.game_active = True
+        self.state = GameState.PLAYING
         self.sb.prep_score()
         self.sb.prep_level()
         self.sb.prep_ships()
@@ -106,18 +153,18 @@ class AlienInvasion:
         elif event.key == pygame.K_LEFT:
             self.ship.moving_left = True
         elif event.key == pygame.K_q:
-            sys.exit()
-        elif event.key == pygame.K_p and not self.game_active:
+            self._quit_game()
+        elif event.key == pygame.K_p and self.state != GameState.PLAYING:
             self._start_game()
-        elif event.key == pygame.K_SPACE:
+        elif self.state == GameState.PLAYING and event.key == pygame.K_SPACE:
             self._fire_bullet()
-        elif event.key == pygame.K_1:
+        elif self.state == GameState.PLAYING and event.key == pygame.K_1:
             self.current_weapon = 'single'
             self.sb.prep_weapon()
-        elif event.key == pygame.K_2:
+        elif self.state == GameState.PLAYING and event.key == pygame.K_2:
             self.current_weapon = 'spread'
             self.sb.prep_weapon()
-        elif event.key == pygame.K_3:
+        elif self.state == GameState.PLAYING and event.key == pygame.K_3:
             self.current_weapon = 'heavy'
             self.sb.prep_weapon()
 
@@ -128,46 +175,55 @@ class AlienInvasion:
         elif event.key == pygame.K_LEFT:
             self.ship.moving_left = False
 
+    def _emit_engine_trail(self):
+        """Release one puff of exhaust behind the ship this frame; called
+        every frame while playing so the puffs build into a trail."""
+        x = self.ship.rect.centerx + random.uniform(-4, 4)
+        y = self.ship.rect.bottom - 4
+        self.particles.spawn_engine_trail(x, y, (255, 170, 60))
+
     def _fire_bullet(self):
         """Fire the current weapon, respecting the total bullet cap."""
         weapon = self.settings.weapon_types[self.current_weapon]
-        bullet_count = weapon['bullet_count']
 
         # Don't fire if this shot would push past the overall bullet limit.
-        if len(self.bullets) + bullet_count > self.settings.bullets_allowed:
+        if len(self.bullets) + weapon.bullet_count > self.settings.bullets_allowed:
             return
 
         # Some weapons (e.g. the piercing heavy bullet) also cap how many
         # of that specific weapon can be active at once.
-        max_active = weapon.get('max_active')
-        if max_active is not None:
+        if weapon.max_active is not None:
             active_of_type = sum(1 for bullet in self.bullets
                 if bullet.weapon_name == self.current_weapon)
-            if active_of_type + bullet_count > max_active:
+            if active_of_type + weapon.bullet_count > weapon.max_active:
                 return
 
-        speed = weapon['speed'] * self.settings.bullet_speed_multiplier
+        speed = weapon.speed * self.settings.bullet_speed_multiplier
 
-        if bullet_count == 1:
+        if weapon.bullet_count == 1:
             angles = [0]
         else:
             # Fan the bullets out evenly around straight up.
-            half = (bullet_count - 1) / 2
-            angles = [(i - half) * weapon['spread_angle']
-                for i in range(bullet_count)]
+            half = (weapon.bullet_count - 1) / 2
+            angles = [(i - half) * weapon.spread_angle
+                for i in range(weapon.bullet_count)]
 
         for angle in angles:
             new_bullet = Bullet(self, angle=angle, speed=speed,
-                width=weapon['width'], height=weapon['height'],
-                color=weapon['color'],
-                piercing=weapon.get('piercing', False),
-                pierce_count=weapon.get('pierce_count', 1),
-                weapon_name=self.current_weapon)
+                width=weapon.width, height=weapon.height,
+                color=weapon.color, weapon_name=self.current_weapon,
+                piercing=weapon.piercing, pierce_count=weapon.pierce_count)
             self.bullets.add(new_bullet)
 
-    def _update_bullets(self):
+        # One flash/sound per trigger pull, regardless of how many
+        # bullets that shot fires.
+        gun_x, gun_y = self.ship.rect.midtop
+        self.particles.spawn_muzzle_flash(gun_x, gun_y, weapon.color)
+        self.audio.play(f'laser_{self.current_weapon}')
+
+    def _update_bullets(self, dt):
         """Update position of bullets and get rid of old bullets."""
-        self.bullets.update()
+        self.bullets.update(dt)
 
         # Get rid of bullets that have disappeared off any edge of the
         # screen (spread shots can drift off the sides, not just the top).
@@ -192,7 +248,19 @@ class AlienInvasion:
             for alien in hit_aliens:
                 if alien.take_hit():
                     points_earned += self.settings.alien_points * alien.points_multiplier
+                    self.particles.spawn_explosion(alien.rect.centerx,
+                        alien.rect.centery, alien.explosion_color)
+                    self.physics.spawn_debris(alien.rect.centerx,
+                        alien.rect.centery, alien.explosion_color)
+                    self.audio.play('explosion_alien')
                     self.aliens.remove(alien)
+                else:
+                    # Survived the hit (e.g. a tank alien) -- give it a
+                    # visible reaction, shoved along the bullet's own
+                    # direction of travel, instead of silently no-selling
+                    # the damage until the hit that finally kills it.
+                    alien.stagger(bullet.dx, bullet.dy)
+                    self.audio.play('hit_stagger')
 
             if bullet.piercing:
                 bullet.pierces_left -= len(hit_aliens)
@@ -249,9 +317,10 @@ class AlienInvasion:
         space out the grid, so bigger/smaller alien types still line up
         on the same cells instead of drifting based on their own size.
         """
+        alien_types = self.settings.alien_types
         alien_type = random.choices(
-            list(self.settings.alien_type_weights.keys()),
-            weights=list(self.settings.alien_type_weights.values()),
+            list(alien_types.keys()),
+            weights=[t.weight for t in alien_types.values()],
         )[0]
         alien = Alien(self, alien_type=alien_type)
 
@@ -264,22 +333,23 @@ class AlienInvasion:
             2 * grid_height * row_number) + jitter_y
         self.aliens.add(alien)
 
-    def _update_aliens(self):
+    def _update_aliens(self, dt):
         """Check if the fleet is at an edge, then update alien positions."""
         self._check_fleet_edges()
-        self.aliens.update()
-        self._maybe_start_dive()
+        self.aliens.update(dt)
+        self._maybe_start_dive(dt)
 
         # Look for alien-ship collisions.
-        if pygame.sprite.spritecollideany(self.ship, self.aliens):
-            self._ship_hit()
+        colliding_alien = pygame.sprite.spritecollideany(self.ship, self.aliens)
+        if colliding_alien:
+            self._ship_hit(colliding_alien)
 
         # Look for aliens hitting the bottom of the screen.
         self._check_aliens_bottom()
 
-    def _maybe_start_dive(self):
+    def _maybe_start_dive(self, dt):
         """Occasionally send a random alien diving toward the ship."""
-        self.dive_cooldown -= 1
+        self.dive_cooldown -= dt
         if self.dive_cooldown > 0:
             return
 
@@ -295,8 +365,20 @@ class AlienInvasion:
 
         self.dive_cooldown = random.randint(*self.settings.dive_cooldown_range)
 
-    def _ship_hit(self):
-        """Respond to the ship being hit by an alien."""
+    def _ship_hit(self, source=None):
+        """Respond to the ship being hit. source is the alien that hit
+        it, when there is one -- the fleet reaching the bottom of the
+        screen counts the same way, but has no single alien to point to."""
+        self._apply_ship_knockback(source)
+        self.particles.spawn_explosion(self.ship.rect.centerx,
+            self.ship.rect.centery, (255, 210, 90), count=55,
+            speed_range=(2, 8), lifespan_range=(25, 50), radius_range=(3, 7))
+        self.audio.play('explosion_ship')
+        # Metallic gray hull fragments, distinct from the warm particle
+        # burst above and from any alien's own tinted debris.
+        self.physics.spawn_debris(self.ship.rect.centerx,
+            self.ship.rect.centery, (190, 195, 205), count=8)
+
         if self.stats.ships_left > 0:
             # Decrement ships_left, and update scoreboard.
             self.stats.ships_left -= 1
@@ -307,8 +389,22 @@ class AlienInvasion:
             # Pause.
             sleep(0.5)
         else:
-            self.game_active = False
+            self.state = GameState.GAME_OVER
             pygame.mouse.set_visible(True)
+
+    def _apply_ship_knockback(self, source):
+        """Shove the ship's physics body away from whatever hit it, so a
+        hit has a tangible physical reaction instead of the ship just
+        staying put. Decays back to normal control through the same
+        drag applied every frame in Ship.update()."""
+        if source is not None and source.rect.centerx != self.ship.rect.centerx:
+            direction = 1 if self.ship.rect.centerx > source.rect.centerx else -1
+        else:
+            direction = random.choice((-1, 1))
+
+        knockback_speed = self.settings.ship_speed * 2.5
+        _, vy = self.ship.body.velocity
+        self.ship.body.velocity = (direction * knockback_speed, vy)
 
     def _start_fresh_fleet(self):
         """Clear the board and start a new fleet, with the ship centered."""
@@ -353,23 +449,49 @@ class AlienInvasion:
     def update_screen(self):
         """Update images on the screen, and flip to the new screen."""
         self.screen.fill(self.settings.bg_color)
+        self.starfield.draw(self.screen)
         for bullet in self.bullets.sprites():
             bullet.draw_bullet()
         self.ship.blitme()
         self.aliens.draw(self.screen)
+        self.physics.draw_debris(self.screen)
+        self.particles.draw()
 
         # Draw the score information.
         self.sb.show_score()
 
-        # Draw the play button if the game is inactive.
-        if not self.game_active:
+        # Draw the play button whenever the game isn't actively running.
+        if self.state != GameState.PLAYING:
             self.play_button.draw_button()
 
+        # On top of that, show a game-over headline and final score.
+        if self.state == GameState.GAME_OVER:
+            self._draw_game_over()
+
         pygame.display.flip()
+
+    def _draw_game_over(self):
+        """Render a game-over headline and final score above the button."""
+        # Brighter red/off-white than before -- the old (150,20,20) and
+        # (30,30,30) were tuned for the game's old light-gray background
+        # and would barely register against the dark starfield now.
+        heading = self.game_over_font.render("GAME OVER", True, (255, 70, 70))
+        heading_rect = heading.get_rect()
+        heading_rect.centerx = self.screen.get_rect().centerx
+        heading_rect.bottom = self.play_button.rect.top - 40
+
+        score_str = f"Final Score: {self.stats.score:,}"
+        score_image = self.game_over_sub_font.render(score_str, True,
+            (220, 225, 235))
+        score_rect = score_image.get_rect()
+        score_rect.centerx = heading_rect.centerx
+        score_rect.top = heading_rect.bottom + 10
+
+        self.screen.blit(heading, heading_rect)
+        self.screen.blit(score_image, score_rect)
 
 
 if __name__ == '__main__':
     # Make a game instance, and run the game.
     ai = AlienInvasion()
     ai.run_game()
-

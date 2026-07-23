@@ -1,3 +1,5 @@
+from game_config import AlienType, WeaponType
+
 class Settings:
     """A class to store all settings for Alien Invasion."""
 
@@ -5,36 +7,44 @@ class Settings:
         """Initialize the game's static settings."""
         self.screen_width = 1200
         self.screen_height = 800
-        self.bg_color = (230, 230, 230)
+        self.bg_color = (8, 10, 24)  # deep space navy, behind the starfield
+
+        # Sound effect volume (0.0-1.0), applied to every loaded sound.
+        self.sfx_volume = 0.6
 
         # Ship settings.
         self.ship_limit = 3
+
+        # Ship movement is physics-driven (see physics.py / ship.py):
+        # holding a direction key applies thrust up to ship_speed (in
+        # initialize_dynamic_settings(), below), and drag brings it to a
+        # coast rather than an instant stop.
+        self.ship_thrust_ratio = 0.35  # thrust accel, as a fraction of ship_speed
+        self.ship_drag = 0.85  # per-frame velocity retention (lower = stops faster)
 
         # Bullet settings.
         self.bullets_allowed = 10
 
         # Weapon presets: base speed/size/color/spread for each weapon type.
-        # bullet_count is how many bullets one shot fires; spread_angle is
-        # the angle (in degrees) between adjacent bullets in a multi-shot.
         self.weapon_types = {
-            'single': {
-                'speed': 4.0, 'width': 3, 'height': 15,
-                'color': (60, 60, 60), 'bullet_count': 1, 'spread_angle': 0,
-            },
-            'spread': {
-                'speed': 5.0, 'width': 3, 'height': 12,
-                'color': (60, 140, 220), 'bullet_count': 3, 'spread_angle': 15,
-            },
-            'heavy': {
-                'speed': 2.5, 'width': 8, 'height': 22,
-                'color': (200, 60, 60), 'bullet_count': 1, 'spread_angle': 0,
+            'single': WeaponType(
+                speed=4.0, width=3, height=15,
+                color=(60, 60, 60), bullet_count=1,
+            ),
+            'spread': WeaponType(
+                speed=5.0, width=3, height=12,
+                color=(60, 140, 220), bullet_count=3, spread_angle=15,
+            ),
+            'heavy': WeaponType(
+                speed=2.5, width=8, height=22,
+                color=(200, 60, 60), bullet_count=1,
                 # Slow, but punches through and can kill up to 3 aliens
                 # in a line instead of being destroyed on the first hit.
-                'piercing': True, 'pierce_count': 3,
+                piercing=True, pierce_count=3,
                 # At most 3 heavy bullets can be in the air at once, so
                 # the pierce power can't be stacked into unlimited kills.
-                'max_active': 3,
-            },
+                max_active=3,
+            ),
         }
 
         # Alien settings.
@@ -43,26 +53,25 @@ class Settings:
         # Alien type variety, recolored/rescaled from the same base image.
         # hits_required is how many bullet hits destroy it; points_multiplier
         # scales alien_points; speed_multiplier scales alien_speed for that
-        # alien specifically, so types drift at different rates.
+        # alien specifically, so types drift at different rates. weight sets
+        # the odds of that type being picked when the fleet is built.
         self.alien_types = {
-            'basic': {
-                'scale': 1.0, 'tint': None,
-                'hits_required': 1, 'points_multiplier': 1.0,
-                'speed_multiplier': 1.0,
-            },
-            'tank': {
-                'scale': 1.4, 'tint': (200, 70, 70),
-                'hits_required': 2, 'points_multiplier': 2.0,
-                'speed_multiplier': 0.75,
-            },
-            'scout': {
-                'scale': 0.7, 'tint': (70, 170, 230),
-                'hits_required': 1, 'points_multiplier': 1.5,
-                'speed_multiplier': 1.5,
-            },
+            'basic': AlienType(
+                scale=1.0, tint=None,
+                hits_required=1, points_multiplier=1.0,
+                speed_multiplier=1.0, weight=0.65,
+            ),
+            'tank': AlienType(
+                scale=1.4, tint=(200, 70, 70),
+                hits_required=2, points_multiplier=2.0,
+                speed_multiplier=0.75, weight=0.15,
+            ),
+            'scout': AlienType(
+                scale=0.7, tint=(70, 170, 230),
+                hits_required=1, points_multiplier=1.5,
+                speed_multiplier=1.5, weight=0.20,
+            ),
         }
-        # Odds of each type when the fleet is built.
-        self.alien_type_weights = {'basic': 0.65, 'tank': 0.15, 'scout': 0.20}
 
         # Dive-attack settings: random aliens periodically break formation
         # and swoop toward the ship instead of just marching side to side.
@@ -83,7 +92,7 @@ class Settings:
 
     def initialize_dynamic_settings(self):
         """Initialize settings that change throughout the game."""
-        self.ship_speed = 3.0
+        self.ship_speed = 7.5
         self.alien_speed = 1.0
 
         # Multiplies every weapon's base speed; scales up as levels increase.
