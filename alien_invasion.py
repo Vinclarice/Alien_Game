@@ -1,4 +1,5 @@
 import sys
+import random
 from time import sleep
 
 import pygame
@@ -9,6 +10,7 @@ from bullet import Bullet
 from alien import Alien
 from button import Button
 from scoreboard import Scoreboard
+from formations import random_formation
 
 class AlienInvasion:
     """Overall class to manage game assets and behavior."""
@@ -179,14 +181,18 @@ class AlienInvasion:
     def _check_bullet_alien_collisions(self):
         """Respond to bullet-alien collisions."""
         # Check each bullet against the fleet individually, since piercing
-        # bullets need to survive a hit instead of being destroyed on impact.
-        total_hits = 0
+        # bullets need to survive a hit, and tougher aliens can survive
+        # one too -- neither is destroyed automatically on contact.
+        points_earned = 0
         for bullet in self.bullets.copy():
-            hit_aliens = pygame.sprite.spritecollide(bullet, self.aliens, True)
+            hit_aliens = pygame.sprite.spritecollide(bullet, self.aliens, False)
             if not hit_aliens:
                 continue
 
-            total_hits += len(hit_aliens)
+            for alien in hit_aliens:
+                if alien.take_hit():
+                    points_earned += self.settings.alien_points * alien.points_multiplier
+                    self.aliens.remove(alien)
 
             if bullet.piercing:
                 bullet.pierces_left -= len(hit_aliens)
@@ -195,8 +201,8 @@ class AlienInvasion:
             else:
                 self.bullets.remove(bullet)
 
-        if total_hits:
-            self.stats.score += self.settings.alien_points * total_hits
+        if points_earned:
+            self.stats.score += int(points_earned)
             self.sb.prep_score()
             self.sb.check_high_score()
 
@@ -211,7 +217,7 @@ class AlienInvasion:
             self.sb.prep_level()
 
     def _create_fleet(self):
-        """Create the fleet of aliens."""
+        """Create the fleet of aliens using a randomly chosen formation."""
         # Create an alien and find the number of aliens in a row.
         # Spacing between each alien is equal to one alien width.
         alien = Alien(self)
@@ -225,24 +231,44 @@ class AlienInvasion:
                                 (3 * alien_height) - ship_height)
         number_rows = available_space_y // (2 * alien_height)
 
-        # Create the full fleet of aliens.
-        for row_number in range(number_rows):
-            for alien_number in range(number_aliens_x):
-                self._create_alien(alien_number, row_number)
+        # Pick a formation shape and create an alien at each of its cells.
+        cells, formation_name = random_formation(number_aliens_x, number_rows)
+        self.fleet_formation = formation_name
+        for alien_number, row_number in cells:
+            self._create_alien(alien_number, row_number, alien_width,
+                alien_height)
 
-    def _create_alien(self, alien_number, row_number):
-        """Create an alien and place it in the row."""
-        alien = Alien(self)
-        alien_width, alien_height = alien.rect.size
-        alien.x = alien_width + 2 * alien_width * alien_number
+        # Give the player a moment before the first dive attack starts.
+        self.dive_cooldown = 120
+
+    def _create_alien(self, alien_number, row_number, grid_width, grid_height):
+        """Create an alien and place it in the formation, with slight
+        random jitter so aliens aren't perfectly grid-aligned.
+
+        grid_width/grid_height are the base (unscaled) alien size used to
+        space out the grid, so bigger/smaller alien types still line up
+        on the same cells instead of drifting based on their own size.
+        """
+        alien_type = random.choices(
+            list(self.settings.alien_type_weights.keys()),
+            weights=list(self.settings.alien_type_weights.values()),
+        )[0]
+        alien = Alien(self, alien_type=alien_type)
+
+        jitter_x = random.randint(-grid_width // 4, grid_width // 4)
+        jitter_y = random.randint(-grid_height // 4, grid_height // 4)
+
+        alien.x = (grid_width + 2 * grid_width * alien_number) + jitter_x
         alien.rect.x = alien.x
-        alien.rect.y = alien.rect.height + 2 * alien.rect.height * row_number
+        alien.rect.y = (grid_height +
+            2 * grid_height * row_number) + jitter_y
         self.aliens.add(alien)
 
     def _update_aliens(self):
         """Check if the fleet is at an edge, then update alien positions."""
         self._check_fleet_edges()
         self.aliens.update()
+        self._maybe_start_dive()
 
         # Look for alien-ship collisions.
         if pygame.sprite.spritecollideany(self.ship, self.aliens):
@@ -250,6 +276,24 @@ class AlienInvasion:
 
         # Look for aliens hitting the bottom of the screen.
         self._check_aliens_bottom()
+
+    def _maybe_start_dive(self):
+        """Occasionally send a random alien diving toward the ship."""
+        self.dive_cooldown -= 1
+        if self.dive_cooldown > 0:
+            return
+
+        diving_count = sum(1 for alien in self.aliens if alien.diving)
+        if diving_count >= self.settings.max_concurrent_dives:
+            self.dive_cooldown = 15  # check again soon
+            return
+
+        candidates = [alien for alien in self.aliens if not alien.diving]
+        if candidates:
+            diver = random.choice(candidates)
+            diver.start_dive(self.ship.rect.centerx)
+
+        self.dive_cooldown = random.randint(*self.settings.dive_cooldown_range)
 
     def _ship_hit(self):
         """Respond to the ship being hit by an alien."""
@@ -274,25 +318,36 @@ class AlienInvasion:
         self.ship.center_ship()
 
     def _check_aliens_bottom(self):
-        """Check if any aliens have reached the bottom of the screen."""
+        """Check if any aliens have reached the bottom of the screen.
+
+        Diving aliens are expected to reach the bottom (they despawn on
+        their own in Alien._update_dive) and shouldn't count as the fleet
+        breaking through -- only the formation itself reaching the ship's
+        row should end the round.
+        """
         screen_rect = self.screen.get_rect()
         for alien in self.aliens.sprites():
+            if alien.diving:
+                continue
             if alien.rect.bottom >= screen_rect.bottom:
                 # Treat this the same as if the ship got hit.
                 self._ship_hit()
                 break
 
     def _check_fleet_edges(self):
-        """Respond appropriately if any aliens have reached an edge."""
+        """Respond appropriately if any (non-diving) alien hits an edge."""
         for alien in self.aliens.sprites():
+            if alien.diving:
+                continue
             if alien.check_edges():
                 self._change_fleet_direction()
                 break
 
     def _change_fleet_direction(self):
-        """Drop the entire fleet and change the fleet's direction."""
+        """Drop the formation and change the fleet's direction."""
         for alien in self.aliens.sprites():
-            alien.rect.y += self.settings.fleet_drop_speed
+            if not alien.diving:
+                alien.rect.y += self.settings.fleet_drop_speed
         self.settings.fleet_direction *= -1
 
     def update_screen(self):

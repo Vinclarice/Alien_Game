@@ -40,6 +40,39 @@ class Settings:
         # Alien settings.
         self.fleet_drop_speed = 10
 
+        # Alien type variety, recolored/rescaled from the same base image.
+        # hits_required is how many bullet hits destroy it; points_multiplier
+        # scales alien_points; speed_multiplier scales alien_speed for that
+        # alien specifically, so types drift at different rates.
+        self.alien_types = {
+            'basic': {
+                'scale': 1.0, 'tint': None,
+                'hits_required': 1, 'points_multiplier': 1.0,
+                'speed_multiplier': 1.0,
+            },
+            'tank': {
+                'scale': 1.4, 'tint': (200, 70, 70),
+                'hits_required': 2, 'points_multiplier': 2.0,
+                'speed_multiplier': 0.75,
+            },
+            'scout': {
+                'scale': 0.7, 'tint': (70, 170, 230),
+                'hits_required': 1, 'points_multiplier': 1.5,
+                'speed_multiplier': 1.5,
+            },
+        }
+        # Odds of each type when the fleet is built.
+        self.alien_type_weights = {'basic': 0.65, 'tank': 0.15, 'scout': 0.20}
+
+        # Dive-attack settings: random aliens periodically break formation
+        # and swoop toward the ship instead of just marching side to side.
+        self.dive_speed = 0.6
+        self.dive_duration = 220  # frames to reach target_x horizontally
+        self.dive_amplitude = 15  # pixels of side-to-side wiggle while diving
+        self.dive_wiggle_rate = 0.05  # how fast the wiggle oscillates
+        self.max_concurrent_dives = 2
+        self.dive_cooldown_range = (90, 200)  # frames between dive attempts
+
         # How quickly the game speeds up.
         self.speedup_scale = 1.1
 
