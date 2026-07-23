@@ -34,6 +34,9 @@ class AlienInvasion:
 
         self._create_fleet()
 
+        # The weapon currently in use; switch with the 1/2/3 keys.
+        self.current_weapon = 'single'
+
         # Create the scoreboard.
         self.sb = Scoreboard(self)
 
@@ -73,20 +76,26 @@ class AlienInvasion:
         """Start a new game when the player clicks Play."""
         button_clicked = self.play_button.rect.collidepoint(mouse_pos)
         if button_clicked and not self.game_active:
-            # Reset the game settings.
-            self.settings.initialize_dynamic_settings()
+            self._start_game()
 
-            # Reset the game statistics.
-            self.stats.reset_stats()
-            self.game_active = True
-            self.sb.prep_score()
-            self.sb.prep_level()
-            self.sb.prep_ships()
+    def _start_game(self):
+        """Reset game state and begin a new game."""
+        # Reset the game settings.
+        self.settings.initialize_dynamic_settings()
 
-            self._start_fresh_fleet()
+        # Reset the game statistics.
+        self.stats.reset_stats()
+        self.game_active = True
+        self.sb.prep_score()
+        self.sb.prep_level()
+        self.sb.prep_ships()
+        self.current_weapon = 'single'
+        self.sb.prep_weapon()
 
-            # Hide the mouse cursor.
-            pygame.mouse.set_visible(False)
+        self._start_fresh_fleet()
+
+        # Hide the mouse cursor.
+        pygame.mouse.set_visible(False)
 
     def _check_keydown_events(self, event):
         """Respond to keypresses."""
@@ -96,8 +105,19 @@ class AlienInvasion:
             self.ship.moving_left = True
         elif event.key == pygame.K_q:
             sys.exit()
+        elif event.key == pygame.K_p and not self.game_active:
+            self._start_game()
         elif event.key == pygame.K_SPACE:
             self._fire_bullet()
+        elif event.key == pygame.K_1:
+            self.current_weapon = 'single'
+            self.sb.prep_weapon()
+        elif event.key == pygame.K_2:
+            self.current_weapon = 'spread'
+            self.sb.prep_weapon()
+        elif event.key == pygame.K_3:
+            self.current_weapon = 'heavy'
+            self.sb.prep_weapon()
 
     def _check_keyup_events(self, event):
         """Respond to key releases."""
@@ -107,32 +127,76 @@ class AlienInvasion:
             self.ship.moving_left = False
 
     def _fire_bullet(self):
-        """Create a new bullet and add it to the bullets group."""
-        if len(self.bullets) < self.settings.bullets_allowed:
-            new_bullet = Bullet(self)
+        """Fire the current weapon, respecting the total bullet cap."""
+        weapon = self.settings.weapon_types[self.current_weapon]
+        bullet_count = weapon['bullet_count']
+
+        # Don't fire if this shot would push past the overall bullet limit.
+        if len(self.bullets) + bullet_count > self.settings.bullets_allowed:
+            return
+
+        # Some weapons (e.g. the piercing heavy bullet) also cap how many
+        # of that specific weapon can be active at once.
+        max_active = weapon.get('max_active')
+        if max_active is not None:
+            active_of_type = sum(1 for bullet in self.bullets
+                if bullet.weapon_name == self.current_weapon)
+            if active_of_type + bullet_count > max_active:
+                return
+
+        speed = weapon['speed'] * self.settings.bullet_speed_multiplier
+
+        if bullet_count == 1:
+            angles = [0]
+        else:
+            # Fan the bullets out evenly around straight up.
+            half = (bullet_count - 1) / 2
+            angles = [(i - half) * weapon['spread_angle']
+                for i in range(bullet_count)]
+
+        for angle in angles:
+            new_bullet = Bullet(self, angle=angle, speed=speed,
+                width=weapon['width'], height=weapon['height'],
+                color=weapon['color'],
+                piercing=weapon.get('piercing', False),
+                pierce_count=weapon.get('pierce_count', 1),
+                weapon_name=self.current_weapon)
             self.bullets.add(new_bullet)
 
     def _update_bullets(self):
         """Update position of bullets and get rid of old bullets."""
         self.bullets.update()
 
-        # Get rid of bullets that have disappeared off the top of the screen.
+        # Get rid of bullets that have disappeared off any edge of the
+        # screen (spread shots can drift off the sides, not just the top).
         for bullet in self.bullets.copy():
-            if bullet.rect.bottom <= 0:
+            if (bullet.rect.bottom <= 0 or bullet.rect.right <= 0 or
+                    bullet.rect.left >= self.settings.screen_width):
                 self.bullets.remove(bullet)
 
         self._check_bullet_alien_collisions()
 
     def _check_bullet_alien_collisions(self):
         """Respond to bullet-alien collisions."""
-        # Check for any bullets that have hit aliens.
-        # If so, get rid of the bullet and the alien.
-        collisions = pygame.sprite.groupcollide(
-            self.bullets, self.aliens, True, True)
+        # Check each bullet against the fleet individually, since piercing
+        # bullets need to survive a hit instead of being destroyed on impact.
+        total_hits = 0
+        for bullet in self.bullets.copy():
+            hit_aliens = pygame.sprite.spritecollide(bullet, self.aliens, True)
+            if not hit_aliens:
+                continue
 
-        if collisions:
-            for hit_aliens in collisions.values():
-                self.stats.score += self.settings.alien_points * len(hit_aliens)
+            total_hits += len(hit_aliens)
+
+            if bullet.piercing:
+                bullet.pierces_left -= len(hit_aliens)
+                if bullet.pierces_left <= 0:
+                    self.bullets.remove(bullet)
+            else:
+                self.bullets.remove(bullet)
+
+        if total_hits:
+            self.stats.score += self.settings.alien_points * total_hits
             self.sb.prep_score()
             self.sb.check_high_score()
 

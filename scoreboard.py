@@ -23,6 +23,7 @@ class Scoreboard:
         self.prep_high_score()
         self.prep_level()
         self.prep_ships()
+        self.prep_weapon()
 
     def prep_score(self):
         """Turn the score into a rendered image."""
@@ -75,9 +76,21 @@ class Scoreboard:
             ship.rect.y = 10
             self.ships.add(ship)
 
+    def prep_weapon(self):
+        """Turn the current weapon name into a rendered image."""
+        weapon_str = f"Weapon: {self.ai_game.current_weapon.title()} (1/2/3)"
+        self.weapon_image = self.font.render(weapon_str, True,
+            self.text_color, self.settings.bg_color)
+
+        # Position at the bottom left of the screen.
+        self.weapon_rect = self.weapon_image.get_rect()
+        self.weapon_rect.left = 20
+        self.weapon_rect.bottom = self.screen_rect.bottom - 20
+
     def show_score(self):
-        """Draw scores, level, and ships to the screen."""
+        """Draw scores, level, ships, and the current weapon to the screen."""
         self.screen.blit(self.score_image, self.score_rect)
         self.screen.blit(self.high_score_image, self.high_score_rect)
         self.screen.blit(self.level_image, self.level_rect)
+        self.screen.blit(self.weapon_image, self.weapon_rect)
         self.ships.draw(self.screen)
