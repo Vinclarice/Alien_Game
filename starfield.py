@@ -3,14 +3,20 @@
 Purely decorative -- stars have no gameplay effect, just depth and a
 sense of motion behind everything else. Three layers (far/mid/near) at
 different speeds, sizes, and brightness create a cheap parallax effect;
-stars drift downward (the same direction diving aliens and the fleet's
-forward pressure read as) and wrap back to the top once they scroll off.
+stars drift toward the bottom of the screen (the same direction diving
+aliens and the fleet's forward pressure read as) and wrap back to the
+top once they scroll off.
+
+Arcade's coordinate system has y increasing upward with (0, 0) at the
+bottom-left of the screen, the opposite of pygame's y-down/top-left --
+so "drifting down the screen" here means decreasing y, and stars wrap
+by jumping back up to y = height once they fall below y = 0.
 """
 
 import math
 import random
 
-import pygame
+import arcade
 
 # (star count, speed range, radius range, brightness range) per layer,
 # far to near. Slower/dimmer/smaller reads as farther away.
@@ -57,20 +63,20 @@ class Starfield:
 
     def update(self, dt=1.0):
         for star in self.stars:
-            star.y += star.speed * dt
-            if star.y > self.height:
-                star.y -= self.height
+            star.y -= star.speed * dt
+            if star.y < 0:
+                star.y += self.height
                 star.x = random.uniform(0, self.width)
             star.twinkle_phase += star.twinkle_rate * dt
 
-    def draw(self, screen):
+    def draw(self):
         for star in self.stars:
             twinkle = 0.75 + 0.25 * math.sin(star.twinkle_phase)
             b = max(0, min(255, int(star.base_brightness * twinkle)))
             color = (b, b, b)
-            x = int(min(self.width - 1, max(0, star.x)))
-            y = int(min(self.height - 1, max(0, star.y)))
+            x = min(self.width - 1, max(0, star.x))
+            y = min(self.height - 1, max(0, star.y))
             if star.radius <= 1:
-                screen.set_at((x, y), color)
+                arcade.draw_point(x, y, color, 1.5)
             else:
-                pygame.draw.circle(screen, color, (x, y), star.radius)
+                arcade.draw_circle_filled(x, y, star.radius, color)

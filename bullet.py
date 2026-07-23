@@ -1,10 +1,17 @@
 import math
 
-import pygame
-from pygame.sprite import Sprite
+import arcade
 
-class Bullet(Sprite):
-    """A class to manage bullets fired from the ship."""
+
+class Bullet:
+    """A class to manage bullets fired from the ship.
+
+    Kept as a plain float-position object rather than an arcade.Sprite
+    -- like the original pygame version, it draws itself every frame
+    with a soft glow and a bright highlight core instead of going
+    through a texture, so there's no benefit to the sprite/SpriteList
+    machinery here.
+    """
 
     def __init__(self, ai_game, angle, speed, width, height, color,
             weapon_name, piercing=False, pierce_count=1):
@@ -22,8 +29,8 @@ class Bullet(Sprite):
         destroyed on impact, and can go on to hit up to pierce_count
         aliens total before they're removed.
         """
-        super().__init__()
-        self.screen = ai_game.screen
+        self.width = width
+        self.height = height
         self.color = color
         # A brighter tint of the base color, used for the highlight core.
         self.highlight_color = tuple(min(255, c + 90) for c in color)
@@ -32,18 +39,36 @@ class Bullet(Sprite):
         self.pierces_left = pierce_count
         self.weapon_name = weapon_name
 
-        # Create a bullet rect at (0, 0) and then set correct position.
-        self.rect = pygame.Rect(0, 0, width, height)
-        self.rect.midtop = ai_game.ship.rect.midtop
-
-        # Store the bullet's position as floats for smooth movement.
-        self.x = float(self.rect.x)
-        self.y = float(self.rect.y)
+        # Spawn with the bullet's leading edge (its top, since bullets
+        # fly toward increasing y in arcade's y-up world) flush with the
+        # ship's muzzle -- the arcade analog of the original's
+        # `rect.midtop = ship.rect.midtop`.
+        self.center_x = ai_game.ship.center_x
+        self.center_y = ai_game.ship.top - height / 2
 
         # Break speed into x/y components based on the firing angle.
+        # dy is positive (arcade's up direction) since straight-up is
+        # the default firing direction, the opposite sign from the
+        # pygame version's y-down world.
         radians = math.radians(angle)
         self.dx = speed * math.sin(radians)
-        self.dy = -speed * math.cos(radians)
+        self.dy = speed * math.cos(radians)
+
+    @property
+    def left(self):
+        return self.center_x - self.width / 2
+
+    @property
+    def right(self):
+        return self.center_x + self.width / 2
+
+    @property
+    def bottom(self):
+        return self.center_y - self.height / 2
+
+    @property
+    def top(self):
+        return self.center_y + self.height / 2
 
     def update(self, dt=1.0):
         """Move the bullet along its angle.
@@ -51,29 +76,33 @@ class Bullet(Sprite):
         dt is a normalized delta-time factor, where 1.0 means "one frame
         at 60fps" -- see Alien.update() for why.
         """
-        self.x += self.dx * dt
-        self.y += self.dy * dt
-        self.rect.x = self.x
-        self.rect.y = self.y
+        self.center_x += self.dx * dt
+        self.center_y += self.dy * dt
+
+    @staticmethod
+    def _draw_capsule(cx, cy, width, height, color):
+        """A rect with fully-rounded ends (a 'stadium' shape) -- the
+        arcade equivalent of pygame's `border_radius=width // 2`."""
+        radius = width / 2
+        half_h = max(0.0, height / 2 - radius)
+        if half_h > 0:
+            arcade.draw_lrbt_rectangle_filled(
+                cx - radius, cx + radius, cy - half_h, cy + half_h, color)
+        arcade.draw_circle_filled(cx, cy + half_h, radius, color)
+        arcade.draw_circle_filled(cx, cy - half_h, radius, color)
 
     def draw_bullet(self):
         """Draw the bullet with a soft glow and a bright highlight core."""
         # Soft glow behind the bullet body.
-        glow_size = (self.rect.width + 10, self.rect.height + 10)
-        glow_surface = pygame.Surface(glow_size, pygame.SRCALPHA)
-        pygame.draw.rect(glow_surface, (*self.color, 80),
-            glow_surface.get_rect(), border_radius=glow_size[0] // 2)
-        glow_rect = glow_surface.get_rect(center=self.rect.center)
-        self.screen.blit(glow_surface, glow_rect)
+        self._draw_capsule(self.center_x, self.center_y,
+            self.width + 10, self.height + 10, (*self.color, 80))
 
         # Main bullet body.
-        pygame.draw.rect(self.screen, self.color, self.rect,
-            border_radius=self.rect.width // 2)
+        self._draw_capsule(self.center_x, self.center_y,
+            self.width, self.height, self.color)
 
         # Bright highlight stripe down the middle for a bit of shine.
-        highlight_width = max(1, self.rect.width - 2)
-        highlight_height = max(1, int(self.rect.height * 0.6))
-        highlight_rect = pygame.Rect(0, 0, highlight_width, highlight_height)
-        highlight_rect.center = self.rect.center
-        pygame.draw.rect(self.screen, self.highlight_color, highlight_rect,
-            border_radius=highlight_width // 2)
+        highlight_width = max(1, self.width - 2)
+        highlight_height = max(1, int(self.height * 0.6))
+        self._draw_capsule(self.center_x, self.center_y,
+            highlight_width, highlight_height, self.highlight_color)

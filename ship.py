@@ -1,11 +1,11 @@
 from pathlib import Path
 
-import pygame
-from pygame.sprite import Sprite
+import arcade
 
 IMAGE_DIR = Path(__file__).resolve().parent / 'images'
 
-class Ship(Sprite):
+
+class Ship(arcade.Sprite):
     """A class to manage the ship.
 
     Horizontal movement is physics-driven (via ai_game.physics): holding
@@ -13,40 +13,37 @@ class Ship(Sprite):
     rather than an instant stop, so it has real momentum. The actual
     position integration and wall collision happens once per frame in
     PhysicsWorld.step(); sync_from_body() then copies the result into
-    self.rect for drawing.
+    this sprite's center_x/center_y for drawing.
+
+    Arcade's coordinate system has y increasing upward with (0, 0) at
+    the bottom-left of the screen, the opposite of pygame's y-down/
+    top-left, so "start at the bottom of the screen" here means pinning
+    the sprite's bottom edge to y = 0 instead of y = screen_height.
     """
 
     def __init__(self, ai_game, create_physics_body=True):
         """Initialize the ship, its physics body, and starting position.
 
         create_physics_body=False is for Scoreboard's life-icon sprites
-        -- those only ever get blitted as a static HUD image, never
-        moved or collided, so giving each one its own body/shape in the
+        -- those only ever get drawn as a static HUD image, never moved
+        or collided, so giving each one its own body/shape in the
         shared physics space would just leak: every life lost calls
-        prep_ships() again, which used to add 3 more orphaned bodies to
-        the simulation that nothing ever removed.
+        prep_ships() again, which would otherwise add 3 more orphaned
+        bodies to the simulation that nothing ever removes.
         """
-        super().__init__()
-        self.screen = ai_game.screen
+        super().__init__(str(IMAGE_DIR / 'ship.png'))
         self.settings = ai_game.settings
-        self.screen_rect = ai_game.screen.get_rect()
-
-        # Load the ship image and get its rect. convert_alpha() (not
-        # convert()) since ship.png has real per-pixel transparency --
-        # see convert_sprites.py for why that matters against a
-        # starfield background instead of a flat fill.
-        self.image = pygame.image.load(
-            str(IMAGE_DIR / 'ship.png')).convert_alpha()
-        self.rect = self.image.get_rect()
+        self.screen_width = ai_game.settings.screen_width
+        self.screen_height = ai_game.settings.screen_height
 
         # Start each new ship at the bottom center of the screen.
-        self.rect.midbottom = self.screen_rect.midbottom
+        self.center_x = self.screen_width / 2
+        self.bottom = 0
 
         # Physics body driving horizontal movement (see class docstring).
         if create_physics_body:
             self.body = ai_game.physics.make_ship_body(
-                self.rect.width, self.rect.height,
-                self.rect.centerx, self.rect.centery)
+                self.width, self.height, self.center_x, self.center_y)
         else:
             self.body = None
 
@@ -54,7 +51,7 @@ class Ship(Sprite):
         self.moving_right = False
         self.moving_left = False
 
-    def update(self, dt=1.0):
+    def update(self, dt=1.0, *args, **kwargs):
         """Set the ship's desired velocity from its movement flags.
 
         This only sets intent -- PhysicsWorld.step() (called once per
@@ -92,19 +89,16 @@ class Ship(Sprite):
         self.body.velocity = (vx, vy)
 
     def sync_from_body(self):
-        """Pull the physics body's simulated position into self.rect.
+        """Pull the physics body's simulated position into this sprite.
         Called once per frame, after PhysicsWorld.step()."""
-        self.rect.centerx = round(self.body.position.x)
-        self.rect.centery = round(self.body.position.y)
-
-    def blitme(self):
-        """Draw the ship at its current location."""
-        self.screen.blit(self.image, self.rect)
+        self.center_x = self.body.position.x
+        self.center_y = self.body.position.y
 
     def center_ship(self):
         """Recenter the ship for a new life/round, and kill its
         velocity so a knockback or drift from a moment ago doesn't
         carry over into the fresh start."""
-        self.rect.midbottom = self.screen_rect.midbottom
-        self.body.position = (self.rect.centerx, self.rect.centery)
+        self.center_x = self.screen_width / 2
+        self.bottom = 0
+        self.body.position = (self.center_x, self.center_y)
         self.body.velocity = (0, 0)

@@ -6,12 +6,18 @@ Everything else -- bullets, and the fleet's formation drift and dive
 attacks -- stays on the existing simple float-position system, since
 scripted, precisely-tuned motion is a better fit for them than handing
 that control to a physics solver.
+
+pymunk itself has no notion of "up" -- the walls are just two vertical
+segments spanning the full y range at x=0 and x=width -- so none of this
+needed to change when porting from pygame (y-down) to arcade (y-up).
+Only draw_debris() (pygame.Surface rotation -> a rotated polygon) is
+arcade-specific.
 """
 
 import math
 import random
 
-import pygame
+import arcade
 import pymunk
 
 # Collision categories. Debris deliberately can't collide with the ship
@@ -139,15 +145,19 @@ class PhysicsWorld:
         self.space.remove(debris.body, debris.shape)
         self._debris.remove(debris)
 
-    def draw_debris(self, screen):
+    def draw_debris(self):
         for debris in self._debris:
-            alpha = int(255 * (1 - debris.alive_fraction))
-            size = max(1, int(debris.size))
-            chunk = pygame.Surface((size, size), pygame.SRCALPHA)
-            pygame.draw.rect(chunk, (*debris.color, max(0, alpha)),
-                chunk.get_rect())
-            rotated = pygame.transform.rotate(
-                chunk, -math.degrees(debris.body.angle))
-            rect = rotated.get_rect(
-                center=(debris.body.position.x, debris.body.position.y))
-            screen.blit(rotated, rect)
+            alpha = max(0, int(255 * (1 - debris.alive_fraction)))
+            half = debris.size / 2
+            cx, cy = debris.body.position
+            cos_a, sin_a = math.cos(debris.body.angle), math.sin(debris.body.angle)
+
+            # Rotate the square's four corners by the body's own angle --
+            # the pymunk-simulated tumble -- around its center.
+            corners = []
+            for lx, ly in ((-half, -half), (half, -half), (half, half), (-half, half)):
+                corners.append((
+                    cx + lx * cos_a - ly * sin_a,
+                    cy + lx * sin_a + ly * cos_a,
+                ))
+            arcade.draw_polygon_filled(corners, (*debris.color, alpha))

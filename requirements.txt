@@ -1,9 +1,8 @@
-# pygame-ce is a drop-in, actively maintained fork of pygame -- same
-# "import pygame" API, faster release cadence and bugfixes. If you
-# currently have plain `pygame` installed, run:
-#   pip uninstall pygame
-#   pip install -r requirements.txt
-pygame-ce>=2.5.7
+# Arcade bundles pyglet (windowing/input/audio/OpenGL) and Pillow
+# (texture/tint work in alien.py) as dependencies.
+arcade>=3.3.3
 
-# pymunk drives the ship's momentum/knockback and alien death debris.
-pymunk>=7.0
+# Drives the ship's momentum/knockback and alien death debris, same as
+# the pygame edition. Arcade's own install pulls in a compatible
+# pymunk version; pin loosely here in case it's installed standalone.
+pymunk>=6.6
