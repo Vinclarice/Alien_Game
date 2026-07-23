@@ -16,6 +16,7 @@ from particles import ParticleSystem
 from physics import PhysicsWorld
 from audio import AudioManager
 from starfield import Starfield
+from lighting import LightingSystem
 
 
 class AlienInvasion(arcade.Window):
@@ -58,6 +59,9 @@ class AlienInvasion(arcade.Window):
         self.bullets = []
         self.aliens = arcade.SpriteList()
         self.particles = ParticleSystem()
+        self.lighting = LightingSystem(
+            self.settings.screen_width, self.settings.screen_height,
+            background_color=self.settings.bg_color)
 
         self._create_fleet()
 
@@ -97,6 +101,10 @@ class AlienInvasion(arcade.Window):
             self._update_bullets(dt)
             self._update_aliens(dt)
             self._emit_engine_trail()
+            self.lighting.set_engine_light(
+                self.ship.center_x, self.ship.bottom + 4)
+        else:
+            self.lighting.clear_engine_light()
 
         # Physics (ship momentum/wall collision, debris tumbling) and
         # particles keep advancing even off PLAYING, so a knockback or
@@ -106,17 +114,25 @@ class AlienInvasion(arcade.Window):
         self.ship.sync_from_body()
         self.particles.update(dt)
         self.starfield.update(dt)  # drifts on the menu too, not just PLAYING
+        self.lighting.sync_bullets(self.bullets)
+        self.lighting.update(dt)
 
     def on_draw(self):
         """Render the current frame."""
         self.clear()
-        self.starfield.draw()
-        for bullet in self.bullets:
-            bullet.draw_bullet()
-        self.ship_list.draw()
-        self.aliens.draw()
-        self.physics.draw_debris()
-        self.particles.draw()
+
+        # Everything that should be lit -- world/gameplay layer only.
+        # HUD and menu UI are drawn afterward, outside the light layer,
+        # so lighting never affects text/button legibility.
+        with self.lighting:
+            self.starfield.draw()
+            for bullet in self.bullets:
+                bullet.draw_bullet()
+            self.ship_list.draw()
+            self.aliens.draw()
+            self.physics.draw_debris()
+            self.particles.draw()
+        self.lighting.draw()
 
         # Draw the score information.
         self.sb.show_score()
@@ -235,6 +251,7 @@ class AlienInvasion(arcade.Window):
         # bullets that shot fires.
         gun_x, gun_y = self.ship.center_x, self.ship.top
         self.particles.spawn_muzzle_flash(gun_x, gun_y, weapon.color)
+        self.lighting.spawn_muzzle_flash(gun_x, gun_y, weapon.color)
         self.audio.play(f'laser_{self.current_weapon}')
 
     def _update_bullets(self, dt):
@@ -276,6 +293,8 @@ class AlienInvasion(arcade.Window):
                 if alien.take_hit():
                     points_earned += self.settings.alien_points * alien.points_multiplier
                     self.particles.spawn_explosion(alien.center_x,
+                        alien.center_y, alien.explosion_color)
+                    self.lighting.spawn_explosion(alien.center_x,
                         alien.center_y, alien.explosion_color)
                     self.physics.spawn_debris(alien.center_x,
                         alien.center_y, alien.explosion_color)
@@ -404,6 +423,8 @@ class AlienInvasion(arcade.Window):
         self.particles.spawn_explosion(self.ship.center_x,
             self.ship.center_y, (255, 210, 90), count=55,
             speed_range=(2, 8), lifespan_range=(25, 50), radius_range=(3, 7))
+        self.lighting.spawn_ship_explosion(self.ship.center_x,
+            self.ship.center_y, (255, 210, 90))
         self.audio.play('explosion_ship')
         # Metallic gray hull fragments, distinct from the warm particle
         # burst above and from any alien's own tinted debris.
